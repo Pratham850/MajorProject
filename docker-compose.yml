@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: healthshare_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: healthshare_db
+      MYSQL_USER: healthshare_user
+      MYSQL_PASSWORD: healthshare_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  cache:
+    image: redis:7.0-alpine
+    container_name: healthshare_cache
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: healthshare_backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - MYSQL_USER=healthshare_user
+      - MYSQL_PASSWORD=healthshare_password
+      - MYSQL_HOST=db
+      - MYSQL_PORT=3306
+      - MYSQL_DB=healthshare_db
+      - REDIS_URL=redis://cache:6379/0
+      - JWT_SECRET_KEY=supersecretkeyhealthshare2026!
+      - ACCESS_TOKEN_EXPIRE_MINUTES=60
+      - REFRESH_TOKEN_EXPIRE_DAYS=7
+      - DEBUG=True
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+
+volumes:
+  mysql_data:
+  redis_data:
