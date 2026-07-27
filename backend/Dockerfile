@@ -23,4 +23,4 @@ COPY . .
 EXPOSE 8000
 
 # Command to run FastAPI server (we will run migrations during compose lifecycle or inline)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
