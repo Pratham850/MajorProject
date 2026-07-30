@@ -1,16 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import {
-    LayoutDashboard,
-    UserCircle,
-    FileText,
-    Settings,
-    LogOut,
     Menu,
     Bell,
     Search,
-    Shield,
-    Activity,
+    FileText,
+    LogOut,
     X,
     Sun,
     Moon
@@ -18,6 +13,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useToast } from '@/components/ui/toast';
+import { useNavigation } from '@/context/NavigationContext';
 
 const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -26,6 +22,7 @@ const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) 
     const { toast } = useToast();
     const navigate = useNavigate();
     const location = useLocation();
+    const { navGroups } = useNavigation();
 
     const handleLogout = () => {
         logout();
@@ -39,34 +36,7 @@ const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) 
         toast.success(`Switched to ${nextTheme} mode!`, 'Theme Preference Saved');
     };
 
-    const getNavItems = () => {
-        const role = user?.role || 'patient';
-        if (role === 'doctor') {
-            return [
-                { icon: LayoutDashboard, label: 'Overview', path: '/' },
-                { icon: UserCircle, label: 'Patients', path: '/patients' },
-                { icon: FileText, label: 'Records', path: '/records' },
-                { icon: Settings, label: 'Settings', path: '/settings' },
-            ];
-        } else if (role === 'patient') {
-            return [
-                { icon: LayoutDashboard, label: 'Overview', path: '/' },
-                { icon: FileText, label: 'My Records', path: '/records' },
-                { icon: Shield, label: 'Consent & Sharing', path: '/consents' },
-                { icon: Settings, label: 'Settings', path: '/settings' },
-            ];
-        } else if (role === 'researcher') {
-            return [
-                { icon: LayoutDashboard, label: 'Overview', path: '/' },
-                { icon: FileText, label: 'Query Datasets', path: '/datasets' },
-                { icon: Activity, label: 'ML Analytics', path: '/analytics' },
-                { icon: Settings, label: 'Settings', path: '/settings' },
-            ];
-        }
-        return [];
-    };
-
-    const navItems = getNavItems();
+    const navItems = navGroups.flatMap((group) => group.items);
 
     return (
         <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 flex text-slate-800 dark:text-slate-200 antialiased font-sans transition-colors duration-300">
@@ -107,8 +77,21 @@ const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) 
                     </div>
 
                     {/* Navigation Items */}
-                    <nav className="flex-1 px-4 py-6 space-y-1.5" aria-label="Main Navigation">
+                    <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto" aria-label="Main Navigation">
                         {navItems.map((item) => {
+                            if (item.isLogout || item.path === '/logout') {
+                                return (
+                                    <button
+                                        key={item.label}
+                                        onClick={handleLogout}
+                                        className="flex items-center gap-3.5 px-4 py-3 rounded-xl transition-all duration-200 w-full text-left font-semibold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                                    >
+                                        <item.icon className="w-5 h-5 text-rose-500" />
+                                        <span className="text-xs">{item.label}</span>
+                                    </button>
+                                );
+                            }
+
                             const isActive = location.pathname === item.path;
                             return (
                                 <Link
@@ -193,7 +176,7 @@ const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) 
                                 className="w-9.5 h-9.5 bg-gradient-to-tr from-primary-100 to-indigo-100 dark:from-primary-950 dark:to-indigo-950 rounded-full flex items-center justify-center text-primary-700 dark:text-primary-300 text-xs font-black border border-primary-200/50 dark:border-primary-800 shadow-sm"
                                 aria-hidden="true"
                             >
-                                {user?.name.charAt(0).toUpperCase()}
+                                {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
                             </div>
                         </div>
                     </div>
@@ -222,4 +205,3 @@ const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) 
 };
 
 export default DashboardLayout;
-

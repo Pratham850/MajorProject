@@ -1,6 +1,9 @@
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
 
 from app.middleware.auth_middleware import JWTAuthMiddleware
 from app.middleware.exception_handlers import register_exception_handlers
@@ -55,6 +58,26 @@ def create_app() -> FastAPI:
     @app.get("/healthz", include_in_schema=False)
     async def health_check():
         return {"status": "ok"}
+
+    # Frontend Integration & Root Endpoint
+    frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
+    assets_dir = os.path.join(frontend_dist, "assets")
+
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="static_assets")
+
+    @app.get("/", include_in_schema=False)
+    async def root():
+        index_path = os.path.join(frontend_dist, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+        return {
+            "message": "Welcome to HealthShare Healthcare Data Platform API",
+            "status": "online",
+            "version": "1.0.0",
+            "docs": "/docs",
+            "health": "/healthz",
+        }
 
     return app
 

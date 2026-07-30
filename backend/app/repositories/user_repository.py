@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import List, Optional
+from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User, UserRole
@@ -34,19 +36,32 @@ class UserRepository:
         is_active: bool = True,
         is_verified: bool = False,
     ) -> User:
-        """Create and persist a new User record."""
-        new_user = User(
-            email=email.lower().strip(),
-            hashed_password=hashed_password,
-            full_name=full_name.strip(),
-            role=role,
-            is_active=is_active,
-            is_verified=is_verified,
-        )
-        self.db.add(new_user)
-        await self.db.commit()
-        await self.db.refresh(new_user)
-        return new_user
+        """Create and persist a new User record with atomic transaction management."""
+        try:
+            new_user = User(
+                email=email.lower().strip(),
+                hashed_password=hashed_password,
+                full_name=full_name.strip(),
+                role=role,
+                is_active=is_active,
+                is_verified=is_verified,
+            )
+            self.db.add(new_user)
+            await self.db.commit()
+            await self.db.refresh(new_user)
+            return new_user
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An account with this email already exists.",
+            ) from exc
+        except SQLAlchemyError as exc:
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Something went wrong. Please try again later.",
+            ) from exc
 
     async def update_profile(self, user: User, full_name: str) -> User:
         """Update full_name field for a user."""

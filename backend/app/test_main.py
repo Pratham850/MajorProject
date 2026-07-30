@@ -1,63 +1,6 @@
 import pytest
 import httpx
-from httpx import ASGITransport
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
 
-from app.main import app
-from app.database import get_db
-from app.models import Base
-import app.database as db_module
-import app.middleware.auth_middleware as auth_mw
-
-from sqlalchemy.pool import StaticPool
-
-# Setup async sqlite database for testing with StaticPool
-DATABASE_URL = "sqlite+aiosqlite:///:memory:"
-
-engine = create_async_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-TestingSessionLocal = sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-    autoflush=False,
-    autocommit=False,
-)
-
-
-async def override_get_db():
-    async with TestingSessionLocal() as session:
-        yield session
-
-
-db_module.AsyncSessionLocal = TestingSessionLocal
-auth_mw.AsyncSessionLocal = TestingSessionLocal
-app.dependency_overrides[get_db] = override_get_db
-
-
-@pytest.fixture
-def anyio_backend():
-    return 'asyncio'
-
-
-@pytest.fixture(autouse=True)
-async def init_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-
-
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as ac:
-        yield ac
 
 
 @pytest.mark.anyio

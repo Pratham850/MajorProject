@@ -22,13 +22,18 @@ def get_dashboard_service(db: AsyncSession = Depends(get_db)) -> DashboardServic
 
 
 # ----------------------------------------------------------------------
-# 1. Patient Dashboard (GET /dashboard/patient)
+# 1. Patient Dashboard (GET /dashboard/patient & GET /api/patient/dashboard)
 # ----------------------------------------------------------------------
 @router.get(
     "/patient",
     response_model=PatientDashboardResponse,
     summary="Patient dashboard metrics",
     description="Retrieves aggregated file counts, active consents, and pending requests for Patients.",
+)
+@router.get(
+    "/api/patient/dashboard",
+    response_model=PatientDashboardResponse,
+    include_in_schema=False,
 )
 async def get_patient_dashboard(
     current_user: User = Depends(RoleChecker([UserRole.PATIENT])),

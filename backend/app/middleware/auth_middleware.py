@@ -11,9 +11,10 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
         
-        # Exclude standard public endpoints from middleware lookup to save DB queries
+        # Exclude standard public endpoints & static assets from middleware lookup
         if (
-            path in ["/healthz", "/docs", "/openapi.json"] 
+            path in ["/", "/healthz", "/docs", "/openapi.json", "/favicon.ico"] 
+            or path.startswith("/assets")
             or path.startswith("/auth/login") 
             or path.startswith("/auth/register") 
             or path.startswith("/auth/token") 

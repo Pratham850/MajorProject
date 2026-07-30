@@ -13,6 +13,7 @@ from app.schemas.auth import (
     TokenResponse,
     UserLogin,
     UserRegister,
+    UserRegisterResponse,
 )
 from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
@@ -31,7 +32,7 @@ def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
 # ----------------------------------------------------------------------
 @router.post(
     "/register",
-    response_model=UserResponse,
+    response_model=UserRegisterResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Register a new user account",
     description="Registers a Patient, Doctor, Researcher, or Admin with password hashing and email uniqueness check.",

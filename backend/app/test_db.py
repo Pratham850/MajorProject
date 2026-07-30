@@ -2,7 +2,7 @@ import asyncio
 from sqlalchemy import text
 from app.database import engine
 
-async def test_connection():
+async def check_connection():
     try:
         async with engine.begin() as conn:
             result = await conn.execute(text("SELECT 1"))
@@ -15,5 +15,5 @@ async def test_connection():
         await engine.dispose()
 
 
-
-asyncio.run(test_connection())
+if __name__ == "__main__":
+    asyncio.run(check_connection())

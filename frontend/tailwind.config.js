@@ -1,31 +1,187 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-    darkMode: "class",
-    content: [
-        "./index.html",
-        "./src/**/*.{js,ts,jsx,tsx}",
-    ],
-    theme: {
-        extend: {
-            colors: {
-                primary: {
-                    50: '#f0f9ff',
-                    100: '#e0f2fe',
-                    200: '#bae6fd',
-                    300: '#7dd3fc',
-                    400: '#38bdf8',
-                    500: '#0ea5e9',
-                    600: '#0284c7',
-                    700: '#0369a1',
-                    800: '#075985',
-                    900: '#0c4a6e',
-                },
-                healthcare: {
-                    teal: '#0d9488',
-                    blue: '#2563eb',
-                }
-            },
+  darkMode: 'class',
+  content: [
+    './index.html',
+    './src/**/*.{js,ts,jsx,tsx}',
+  ],
+  theme: {
+    extend: {
+      colors: {
+        // HealthShare Design System Tokens
+        primary: {
+          DEFAULT: 'var(--color-primary)',
+          50: '#f0fdfa',
+          100: '#ccfbf1',
+          200: '#99f6e4',
+          300: '#5eead4',
+          400: '#2dd4bf',
+          500: '#14b8a6',
+          600: '#0d9488',
+          700: '#0f4c5c', // HealthShare Light Primary
+          800: '#115e59',
+          900: '#134e4a',
+          950: '#042f2e',
         },
+        secondary: {
+          DEFAULT: 'var(--color-secondary)',
+          50: '#f8fafc',
+          100: '#f1f5f9',
+          200: '#e2e8f0',
+          300: '#cbd5e1',
+          400: '#94a3b8',
+          500: '#3a7d7c', // HealthShare Secondary
+          600: '#475569',
+          700: '#334155',
+          800: '#1e293b',
+          900: '#0f172a',
+          950: '#020617',
+        },
+        accent: {
+          DEFAULT: 'var(--color-accent)',
+          coral: '#e06d53',
+          cyan: '#06b6d4',
+          emerald: '#10b981',
+          indigo: '#6366f1',
+          sky: '#0284c7',
+        },
+        surface: {
+          DEFAULT: 'var(--bg-surface)',
+          light: '#ffffff',
+          dark: '#131f2e',
+          cardLight: '#ffffff',
+          cardDark: '#1b2a3c',
+          subtleLight: '#f8fafc',
+          subtleDark: '#0b131f',
+        },
+        card: {
+          DEFAULT: 'var(--bg-card)',
+        },
+        appBg: {
+          DEFAULT: 'var(--bg-app)',
+        },
+        appBorder: {
+          DEFAULT: 'var(--border-color)',
+        },
+        textPrimary: {
+          DEFAULT: 'var(--text-primary)',
+        },
+        textSecondary: {
+          DEFAULT: 'var(--text-secondary)',
+        },
+        healthSuccess: {
+          DEFAULT: 'var(--color-success)',
+          50: '#f0fdf4',
+          500: '#0d9488',
+          700: '#15803d',
+        },
+        healthWarning: {
+          DEFAULT: 'var(--color-warning)',
+          50: '#fffbeb',
+          500: '#d97706',
+          700: '#b45309',
+        },
+        healthError: {
+          DEFAULT: 'var(--color-danger)',
+          50: '#fef2f2',
+          500: '#e11d48',
+          700: '#b91c1c',
+        },
+        healthInfo: {
+          DEFAULT: 'var(--color-info)',
+          50: '#f0f9ff',
+          500: '#0284c7',
+          700: '#0369a1',
+        },
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        display: ['Outfit', 'Inter', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace'],
+      },
+      fontSize: {
+        'display': ['3.25rem', { lineHeight: '3.75rem', letterSpacing: '-0.03em', fontWeight: '700' }],
+        'h1': ['2.25rem', { lineHeight: '2.75rem', letterSpacing: '-0.025em', fontWeight: '700' }],
+        'h2': ['1.75rem', { lineHeight: '2.25rem', letterSpacing: '-0.02em', fontWeight: '600' }],
+        'h3': ['1.375rem', { lineHeight: '1.875rem', letterSpacing: '-0.015em', fontWeight: '600' }],
+        'h4': ['1.125rem', { lineHeight: '1.625rem', letterSpacing: '-0.01em', fontWeight: '600' }],
+        'body-lg': ['1.125rem', { lineHeight: '1.75rem', letterSpacing: '0em', fontWeight: '400' }],
+        'body': ['1.0rem', { lineHeight: '1.5rem', letterSpacing: '0em', fontWeight: '400' }],
+        'small': ['0.875rem', { lineHeight: '1.25rem', letterSpacing: '0.005em', fontWeight: '400' }],
+        'caption': ['0.75rem', { lineHeight: '1.0rem', letterSpacing: '0.015em', fontWeight: '400' }],
+        'label': ['0.75rem', { lineHeight: '1.0rem', letterSpacing: '0.03em', fontWeight: '600' }],
+        'btn': ['0.875rem', { lineHeight: '1.25rem', letterSpacing: '0.015em', fontWeight: '600' }],
+        '2xs': ['0.6875rem', { lineHeight: '0.9375rem' }],
+        'xs': ['0.75rem', { lineHeight: '1rem' }],
+        'sm': ['0.875rem', { lineHeight: '1.25rem' }],
+        'base': ['1rem', { lineHeight: '1.5rem' }],
+        'lg': ['1.125rem', { lineHeight: '1.75rem' }],
+        'xl': ['1.25rem', { lineHeight: '1.75rem' }],
+        '2xl': ['1.5rem', { lineHeight: '2rem' }],
+        '3xl': ['1.875rem', { lineHeight: '2.25rem' }],
+        '4xl': ['2.25rem', { lineHeight: '2.5rem' }],
+      },
+      spacing: {
+        '3xs': '0.125rem',
+        '2xs': '0.25rem',
+        'xs': '0.5rem',
+        'sm': '0.75rem',
+        'md': '1.0rem',
+        'lg': '1.5rem',
+        'xl': '2.0rem',
+        '2xl': '3.0rem',
+        '3xl': '4.0rem',
+      },
+      boxShadow: {
+        'subtle': '0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03)',
+        'card': '0 4px 6px -1px rgba(0, 0, 0, 0.04), 0 2px 4px -1px rgba(0, 0, 0, 0.02)',
+        'elevated': '0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04)',
+        'dialog': '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+        'teal-glow': '0 0 20px -3px rgba(15, 76, 92, 0.35)',
+      },
+      borderRadius: {
+        'none': '0px',
+        'xs': '0.25rem',
+        'sm': '0.375rem',
+        'md': '0.5rem',
+        'lg': '0.75rem',
+        'xl': '1.0rem',
+        '2xl': '1.5rem',
+        'full': '9999px',
+      },
+      maxWidth: {
+        'container-sm': '40rem',
+        'container-md': '48rem',
+        'container-lg': '64rem',
+        'container-xl': '80rem',
+        'container-2xl': '96rem',
+      },
+      animation: {
+        'pulse-subtle': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'fade-in': 'fadeIn 0.2s ease-out forwards',
+        'slide-up': 'slideUp 0.3s ease-out forwards',
+        'scale-in': 'scaleIn 0.2s ease-out forwards',
+        'shimmer': 'shimmer 2s infinite linear',
+      },
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        slideUp: {
+          '0%': { opacity: '0', transform: 'translateY(8px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        scaleIn: {
+          '0%': { opacity: '0', transform: 'scale(0.96)' },
+          '100%': { opacity: '1', transform: 'scale(1)' },
+        },
+        shimmer: {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(100%)' },
+        },
+      },
     },
-    plugins: [],
+  },
+  plugins: [],
 }

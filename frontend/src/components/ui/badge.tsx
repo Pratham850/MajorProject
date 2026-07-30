@@ -1,33 +1,65 @@
 import React from 'react';
-import { cn } from '@/lib/utils';
+import { cn } from '../../lib/utils';
 
-export interface BadgeProps extends React.HTMLAttributes<HTMLDivElement> {
-    variant?: 'default' | 'secondary' | 'outline' | 'success' | 'warning' | 'destructive' | 'info';
+export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
+  variant?: 'primary' | 'secondary' | 'success' | 'warning' | 'danger' | 'info' | 'outline' | 'default' | 'destructive';
+  size?: 'sm' | 'md';
+  dot?: boolean;
 }
 
-const Badge = React.forwardRef<HTMLDivElement, BadgeProps>(
-    ({ className, variant = 'default', ...props }, ref) => {
-        return (
-            <div
-                ref={ref}
-                className={cn(
-                    "inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 dark:focus:ring-slate-300 dark:ring-offset-slate-950",
-                    {
-                        "border-transparent bg-slate-900 text-slate-50 hover:bg-slate-900/80 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-800/80": variant === 'default',
-                        "border-transparent bg-slate-100 text-slate-900 hover:bg-slate-100/80 dark:bg-slate-800/50 dark:text-slate-300 dark:hover:bg-slate-800/70": variant === 'secondary',
-                        "border-slate-200 text-slate-950 bg-white dark:border-slate-800 dark:text-slate-300 dark:bg-slate-900": variant === 'outline',
-                        "border-transparent bg-emerald-50 text-emerald-800 border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/30": variant === 'success',
-                        "border-transparent bg-amber-50 text-amber-800 border-amber-100 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/30": variant === 'warning',
-                        "border-transparent bg-rose-50 text-rose-800 border-rose-100 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-900/30": variant === 'destructive',
-                        "border-transparent bg-blue-50 text-blue-800 border-blue-100 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900/30": variant === 'info'
-                    },
-                    className
-                )}
-                {...props}
-            />
-        );
-    }
-);
-Badge.displayName = "Badge";
+export const Badge: React.FC<BadgeProps> = ({
+  className,
+  variant = 'primary',
+  size = 'md',
+  dot = false,
+  children,
+  ...props
+}) => {
+  const mapVariant = (v: string) => {
+    if (v === 'default') return 'primary';
+    if (v === 'destructive') return 'danger';
+    return v;
+  };
 
-export { Badge };
+  const actualVariant = mapVariant(variant);
+
+  const variantStyles: Record<string, string> = {
+    primary: 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary border-primary/20',
+    secondary: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700',
+    success: 'bg-healthSuccess/10 text-healthSuccess dark:bg-healthSuccess/20 dark:text-healthSuccess border-healthSuccess/20',
+    warning: 'bg-healthWarning/10 text-healthWarning dark:bg-healthWarning/20 dark:text-healthWarning border-healthWarning/20',
+    danger: 'bg-healthError/10 text-healthError dark:bg-healthError/20 dark:text-healthError border-healthError/20',
+    info: 'bg-healthInfo/10 text-healthInfo dark:bg-healthInfo/20 dark:text-healthInfo border-healthInfo/20',
+    outline: 'bg-transparent text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700',
+  };
+
+  const dotColors: Record<string, string> = {
+    primary: 'bg-primary',
+    secondary: 'bg-slate-400',
+    success: 'bg-healthSuccess',
+    warning: 'bg-healthWarning',
+    danger: 'bg-healthError',
+    info: 'bg-healthInfo',
+    outline: 'bg-slate-400',
+  };
+
+  const sizeStyles = {
+    sm: 'text-2xs px-2 py-0.5 gap-1 font-medium',
+    md: 'text-xs px-2.5 py-1 gap-1.5 font-semibold',
+  };
+
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full border transition-colors select-none tracking-wide',
+        variantStyles[actualVariant] || variantStyles.primary,
+        sizeStyles[size],
+        className
+      )}
+      {...props}
+    >
+      {dot && <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', dotColors[actualVariant] || dotColors.primary)} />}
+      <span>{children}</span>
+    </span>
+  );
+};

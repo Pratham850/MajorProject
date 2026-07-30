@@ -5,14 +5,21 @@ from jose import JWTError
 
 from app.models import User
 from app.repositories.user_repository import UserRepository
-from app.schemas.auth import UserLogin, UserRegister, TokenResponse, TokenRefreshResponse
+from app.schemas.auth import (
+    RegisteredUserSchema,
+    TokenRefreshResponse,
+    TokenResponse,
+    UserLogin,
+    UserRegister,
+    UserRegisterResponse,
+)
 from app.schemas.user import UserResponse
 from app.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
     get_password_hash,
-    verify_password,
+    verify_password_constant_time,
 )
 
 
@@ -25,18 +32,19 @@ class AuthService:
     def __init__(self, user_repo: UserRepository):
         self.user_repo = user_repo
 
-    async def register_user(self, user_in: UserRegister) -> User:
+    async def register_user(self, user_in: UserRegister) -> UserRegisterResponse:
         """
         Business Logic:
         1. Check if email is already registered in the system.
         2. Hash the user's password using bcrypt.
         3. Persist the new user via UserRepository.
+        4. Return safe UserRegisterResponse payload.
         """
         existing_user = await self.user_repo.get_by_email(user_in.email)
         if existing_user:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="A user account with this email address already exists.",
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An account with this email already exists.",
             )
 
         hashed_password = get_password_hash(user_in.password)
@@ -48,18 +56,34 @@ class AuthService:
             is_active=True,
             is_verified=False,
         )
-        return new_user
+
+        role_str = new_user.role.value.upper() if hasattr(new_user.role, "value") else str(new_user.role).upper()
+        registered_user = RegisteredUserSchema(
+            id=new_user.id,
+            name=new_user.full_name,
+            email=new_user.email,
+            role=role_str,
+        )
+        return UserRegisterResponse(
+            message="Registration successful",
+            user=registered_user,
+        )
 
     async def authenticate_user(self, credentials: UserLogin) -> TokenResponse:
         """
         Business Logic:
         1. Retrieve user by email.
-        2. Verify password against stored bcrypt hash.
+        2. Constant-time verification of password against stored hash (prevents timing attacks).
         3. Check account is_active flag.
         4. Generate JWT Access Token and Refresh Token.
         """
         user = await self.user_repo.get_by_email(credentials.email)
-        if not user or not verify_password(credentials.password, user.hashed_password):
+        is_password_valid = verify_password_constant_time(
+            credentials.password,
+            user.hashed_password if user else None,
+        )
+
+        if not user or not is_password_valid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect email address or password.",
@@ -110,8 +134,14 @@ class AuthService:
             raise credentials_exception
 
         user = await self.user_repo.get_by_id(user_id)
-        if not user or not user.is_active:
+        if not user:
             raise credentials_exception
+            
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User account is inactive.",
+            )
 
         role_str = user.role if isinstance(user.role, str) else user.role.value
         new_access_token = create_access_token(subject=user.id, role=role_str)

@@ -1,531 +1,759 @@
-import React, { useState, useEffect } from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
+import React, { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../components/ui/toast';
+import { StatCard } from '../components/common/StatCard';
+import { HealthChart } from '../components/common/HealthChart';
+import { ActivityTimeline, ActivityItem } from '../components/common/ActivityTimeline';
+import { SearchBox } from '../components/common/SearchBox';
+import { FilterPanel } from '../components/common/FilterPanel';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card';
+import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
+import { Dialog, DialogFooter } from '../components/ui/dialog';
+import { Input } from '../components/ui/input';
+import { Select } from '../components/ui/select';
+import { datasetService } from '../services/dataset.service';
+import { researchRequestService } from '../services/researchRequest.service';
 import {
-    AreaChart,
-    Area,
-    BarChart,
-    Bar,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-    Legend,
-    ResponsiveContainer
-} from 'recharts';
-import {
-    Database,
-    FileText,
-    TrendingUp,
-    Download,
-    CheckCircle2,
-    Clock,
-    XCircle,
-    Plus,
-    Search,
-    ShieldCheck,
-    Loader2
+  Database,
+  Search,
+  Download,
+  Plus,
+  ShieldCheck,
+  FileSpreadsheet,
+  Activity,
+  DownloadCloud,
+  Microscope,
+  Users,
+  BarChart2,
+  FileCode2,
+  Settings,
+  BookOpen,
+  TrendingUp,
 } from 'lucide-react';
-import { useAuth } from '@/context/AuthContext';
-import api from '@/services/api';
-import { useToast } from '@/components/ui/toast';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
 
-// Schema validation for Dataset Request
-const requestSchema = z.object({
-    title: z.string().min(5, { message: 'Study title must be at least 5 characters long' }),
-    patientCount: z.number()
-        .min(100, { message: 'Minimum cohort sample size is 100 patients' })
-        .max(100000, { message: 'Maximum cohort sample size is 100,000 patients' }),
-    diseaseFocus: z.enum(['Oncology', 'Cardiology', 'Infectious Diseases', 'Neurology', 'Pulmonology']),
-    justification: z.string().min(15, { message: 'Justification must outline research scope in at least 15 characters' })
-});
-
-type RequestFormData = z.infer<typeof requestSchema>;
-
-interface DatasetRequest {
-    id: string;
-    title: string;
-    diseaseFocus: 'Oncology' | 'Cardiology' | 'Infectious Diseases' | 'Neurology' | 'Pulmonology';
-    patientCount: number;
-    justification: string;
-    dateRequested: string;
-    status: 'Pending' | 'Approved' | 'Denied';
-    sandboxSize?: string;
+export interface DatasetItem {
+  id: string;
+  title: string;
+  category: 'Cardiology' | 'Oncology' | 'Genomics' | 'Neurology' | 'Endocrinology';
+  patientCount: number;
+  format: 'CSV' | 'Parquet' | 'FHIR JSON';
+  anonymization: 'Safe Harbor' | 'Limited Data Set';
+  fileSize: string;
+  updatedAt: string;
+  status: 'AVAILABLE' | 'REQUESTED' | 'APPROVED';
 }
 
-// Visual Chart Data
-const cohortTrendsData = [
-    { year: '2026', Oncology: 120, Cardiology: 200, InfectiousDiseases: 90 },
-    { year: '2027', Oncology: 145, Cardiology: 215, InfectiousDiseases: 110 },
-    { year: '2028', Oncology: 190, Cardiology: 240, InfectiousDiseases: 85 },
-    { year: '2029', Oncology: 220, Cardiology: 280, InfectiousDiseases: 130 },
-    { year: '2030', Oncology: 270, Cardiology: 310, InfectiousDiseases: 160 }
-];
+export interface ResearchRequest {
+  id: string;
+  studyTitle: string;
+  diseaseFocus: string;
+  requestedCohortSize: number;
+  status: 'APPROVED' | 'PENDING' | 'DENIED';
+  dateSubmitted: string;
+  downloadToken?: string;
+  fileSize?: string;
+}
 
-const modelAccuracyData = [
-    { name: 'Oncology', Accuracy: 94.2, Cohorts: 18 },
-    { name: 'Cardiology', Accuracy: 91.8, Cohorts: 12 },
-    { name: 'Infectious', Accuracy: 96.5, Cohorts: 25 },
-    { name: 'Neurology', Accuracy: 89.4, Cohorts: 8 },
-    { name: 'Pulmonology', Accuracy: 93.1, Cohorts: 15 }
-];
+export interface ResearchProjectProgress {
+  id: string;
+  title: string;
+  leadInvestigator: string;
+  progressPercent: number;
+  status: 'In Progress' | 'Under IRB Review' | 'Completed';
+  targetCompletion: string;
+  anonymizedCohortCount: number;
+}
 
-const ResearcherDashboard: React.FC = () => {
-    const { user } = useAuth();
-    const { toast } = useToast();
+export const ResearcherDashboard: React.FC = () => {
+  const { user } = useAuth();
+  const { addToast } = useToast();
+  const navigate = useNavigate();
 
-    // 1. Requests State
-    const [requests, setRequests] = useState<DatasetRequest[]>([]);
-    
-    // 2. ML Predictions State
-    const [predictions, setPredictions] = useState<any[]>(cohortTrendsData);
+  const researcherName = user?.name || 'Dr. Alex Rivera';
 
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  // --- Search & Filter State ---
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFilters, setSelectedFilters] = useState<Record<string, string[]>>({
+    category: [],
+    format: [],
+  });
 
-    const {
-        register,
-        handleSubmit,
-        reset,
-        formState: { errors }
-    } = useForm<RequestFormData>({
-        resolver: zodResolver(requestSchema),
-        defaultValues: {
-            title: '',
-            patientCount: 500,
-            diseaseFocus: 'Oncology',
-            justification: ''
-        }
+  // --- Modal States ---
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  // --- New Request Form State ---
+  const [reqTitle, setReqTitle] = useState('');
+  const [reqCategory, setReqCategory] = useState<'Cardiology' | 'Oncology' | 'Genomics' | 'Neurology' | 'Endocrinology'>('Cardiology');
+  const [reqCohortSize, setReqCohortSize] = useState(1500);
+  const [reqJustification, setReqJustification] = useState('');
+
+  // --- Research Projects Progress Data ---
+  const [projects] = useState<ResearchProjectProgress[]>([
+    {
+      id: 'proj-1',
+      title: 'Predictive ML Factors in Heart Failure Readmission',
+      leadInvestigator: researcherName,
+      progressPercent: 82,
+      status: 'In Progress',
+      targetCompletion: 'Q4 2026',
+      anonymizedCohortCount: 18450,
+    },
+    {
+      id: 'proj-2',
+      title: 'CKD Biomarker Population Cohort Validation',
+      leadInvestigator: 'BioGen Data Science Team',
+      progressPercent: 60,
+      status: 'In Progress',
+      targetCompletion: 'Q1 2027',
+      anonymizedCohortCount: 12100,
+    },
+    {
+      id: 'proj-3',
+      title: 'Infectious Disease Epidemic Trajectory Modeling',
+      leadInvestigator: researcherName,
+      progressPercent: 35,
+      status: 'Under IRB Review',
+      targetCompletion: 'Q2 2027',
+      anonymizedCohortCount: 5000,
+    },
+  ]);
+
+  // --- Available Datasets Catalog Data ---
+  const [datasets] = useState<DatasetItem[]>([
+    {
+      id: 'ds-101',
+      title: 'De-identified Cardiology Telemetry Cohort (2026)',
+      category: 'Cardiology',
+      patientCount: 18450,
+      format: 'Parquet',
+      anonymization: 'Safe Harbor',
+      fileSize: '420 MB',
+      updatedAt: '2026-07-20',
+      status: 'APPROVED',
+    },
+    {
+      id: 'ds-102',
+      title: 'Pediatric Oncology Biomarkers & Genomic Variants',
+      category: 'Oncology',
+      patientCount: 4200,
+      format: 'FHIR JSON',
+      anonymization: 'Safe Harbor',
+      fileSize: '1.2 GB',
+      updatedAt: '2026-07-15',
+      status: 'AVAILABLE',
+    },
+    {
+      id: 'ds-103',
+      title: 'Type-2 Diabetes Glucose & HbA1c Longitudinal Set',
+      category: 'Endocrinology',
+      patientCount: 12100,
+      format: 'CSV',
+      anonymization: 'Limited Data Set',
+      fileSize: '180 MB',
+      updatedAt: '2026-07-18',
+      status: 'REQUESTED',
+    },
+    {
+      id: 'ds-104',
+      title: 'Alzheimers Early Neuroimaging & PET Scans',
+      category: 'Neurology',
+      patientCount: 1850,
+      format: 'Parquet',
+      anonymization: 'Safe Harbor',
+      fileSize: '4.8 GB',
+      updatedAt: '2026-06-30',
+      status: 'AVAILABLE',
+    },
+  ]);
+
+  // --- Research Requests Data ---
+  const [requests, setRequests] = useState<ResearchRequest[]>([
+    {
+      id: 'rr-1',
+      studyTitle: 'Predictive ML Factors in Heart Failure Readmission',
+      diseaseFocus: 'Cardiology',
+      requestedCohortSize: 18450,
+      status: 'APPROVED',
+      dateSubmitted: '2026-07-01',
+      downloadToken: 'TOK-9021-CARD',
+      fileSize: '420 MB',
+    },
+    {
+      id: 'rr-2',
+      studyTitle: 'Infectious Disease Epidemic Trajectory Modeling',
+      diseaseFocus: 'Genomics',
+      requestedCohortSize: 5000,
+      status: 'PENDING',
+      dateSubmitted: '2026-07-24',
+    },
+  ]);
+
+  // --- Download Export History Data ---
+  const [downloadHistory] = useState([
+    {
+      id: 'dl-1',
+      datasetName: 'De-identified Cardiology Telemetry Cohort (2026)',
+      format: 'Parquet',
+      downloadedAt: 'Today, 08:30 AM',
+      size: '420 MB',
+      checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    },
+    {
+      id: 'dl-2',
+      datasetName: 'Oncology Biomarkers Sub-Set',
+      format: 'CSV',
+      downloadedAt: '2026-07-22',
+      size: '85 MB',
+      checksum: 'f4a1c55398fd2d250bfbf5d9997fc93538bf52f5750c045db506002c8963c966',
+    },
+  ]);
+
+  // --- Research Activity Timeline ---
+  const [activities] = useState<ActivityItem[]>([
+    {
+      id: 'act-1',
+      title: 'IRB Ethics Approval Granted',
+      description: 'Protocol #IRB-2026-089 approved for Cardiology Cohort query.',
+      timestamp: '2 hours ago',
+      actorName: 'IRB Ethics Board',
+      actorRole: 'ADMIN',
+      type: 'consent',
+    },
+    {
+      id: 'act-2',
+      title: 'De-identified Dataset Exported',
+      description: 'Downloaded 420 MB Parquet cohort (Safe Harbor Sanitized).',
+      timestamp: '5 hours ago',
+      actorName: researcherName,
+      actorRole: 'RESEARCHER',
+      type: 'record',
+    },
+    {
+      id: 'act-3',
+      title: 'Cohort Query Submitted',
+      description: 'Submitted request for Infectious Disease Epidemic Model (5,000 patients).',
+      timestamp: '1 day ago',
+      actorName: researcherName,
+      actorRole: 'RESEARCHER',
+      type: 'ml',
+    },
+  ]);
+
+  // --- Visual Chart Trends Data ---
+  const queryTrendData = [
+    { name: 'Jan', value: 18, secondaryValue: 12 },
+    { name: 'Feb', value: 34, secondaryValue: 24 },
+    { name: 'Mar', value: 45, secondaryValue: 38 },
+    { name: 'Apr', value: 78, secondaryValue: 52 },
+    { name: 'May', value: 92, secondaryValue: 68 },
+    { name: 'Jun', value: 128, secondaryValue: 95 },
+  ];
+
+  // --- Filtered Available Datasets ---
+  const filteredDatasets = useMemo(() => {
+    return datasets.filter((d) => {
+      const matchesSearch =
+        !searchQuery ||
+        d.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        d.category.toLowerCase().includes(searchQuery.toLowerCase());
+
+      const selectedCat = selectedFilters.category || [];
+      const matchesCategory = selectedCat.length === 0 || selectedCat.includes(d.category);
+
+      const selectedFmt = selectedFilters.format || [];
+      const matchesFormat = selectedFmt.length === 0 || selectedFmt.includes(d.format);
+
+      return matchesSearch && matchesCategory && matchesFormat;
     });
+  }, [datasets, searchQuery, selectedFilters]);
 
-    const loadResearcherData = async () => {
-        try {
-            const [requestsRes, predictionsRes] = await Promise.all([
-                api.get('/ml/datasets/requests'),
-                api.get('/ml/predictions')
-            ]);
-            setRequests(requestsRes.data);
-            setPredictions(predictionsRes.data);
-        } catch (err: any) {
-            console.error('Failed to load researcher metrics & trends:', err);
-        }
+  // --- Handlers ---
+  const handleDownloadDataset = (id: string, title: string) => {
+    setDownloadingId(id);
+    addToast({ type: 'info', title: 'Compiling Dataset', message: 'Generating de-identified export with Safe Harbor sanitization...' });
+
+    setTimeout(() => {
+      setDownloadingId(null);
+      addToast({ type: 'success', title: 'Export Complete', message: `Downloaded "${title}" (Parquet Format).` });
+    }, 1500);
+  };
+
+  const handleCreateRequest = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reqTitle) {
+      addToast({ type: 'error', title: 'Missing Title', message: 'Please specify research study title.' });
+      return;
+    }
+
+    const newReq: ResearchRequest = {
+      id: `rr-${Date.now()}`,
+      studyTitle: reqTitle,
+      diseaseFocus: reqCategory,
+      requestedCohortSize: reqCohortSize,
+      status: 'PENDING',
+      dateSubmitted: new Date().toISOString().split('T')[0],
     };
 
-    useEffect(() => {
-        loadResearcherData();
-    }, []);
+    setRequests([newReq, ...requests]);
+    setIsRequestModalOpen(false);
+    setReqTitle('');
+    setReqJustification('');
+    addToast({ type: 'success', title: 'Request Submitted', message: `Study proposal "${newReq.studyTitle}" sent for IRB review.` });
+  };
 
-    // Handle Dataset Request Submission
-    const onSubmit = async (data: RequestFormData) => {
-        setIsSubmitting(true);
-        try {
-            await api.post('/ml/datasets/request', {
-                title: data.title,
-                patientCount: data.patientCount,
-                diseaseFocus: data.diseaseFocus,
-                justification: data.justification
-            });
-
-            toast.success('Your scientific cohort query has been successfully submitted for HIPAA review.', 'Cohort Request Submitted');
-            reset();
-            loadResearcherData();
-        } catch (err: any) {
-            console.error('Dataset query failed', err);
-            const errMsg = err.response?.data?.detail || 'An error occurred while submitting your dataset request.';
-            toast.error(errMsg, 'Submission Failed');
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    // Handle Sandbox JSON Download
-    const handleDownloadDataset = async (reqId: string) => {
-        setDownloadingId(reqId);
-        toast.info('Safe-harbor de-identified sandbox cohort is compiling...', 'Compiling Sandbox');
-        try {
-            const response = await api.get(`/ml/datasets/download/${reqId}`);
-            
-            // Trigger actual browser download of the compiled JSON file
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(response.data, null, 2));
-            const downloadAnchor = document.createElement('a');
-            downloadAnchor.setAttribute("href", dataStr);
-            downloadAnchor.setAttribute("download", `sandbox_cohort_${reqId}.json`);
-            document.body.appendChild(downloadAnchor);
-            downloadAnchor.click();
-            downloadAnchor.remove();
-
-            toast.success('De-identified Sandbox Dataset compiled & downloaded (HIPAA Safe Harbor Sanitized).', 'Download Complete');
-        } catch (err: any) {
-            console.error('Download failed', err);
-            const errMsg = err.response?.data?.detail || 'An error occurred while compiling your sandbox dataset.';
-            toast.error(errMsg, 'Compilation Failed');
-        } finally {
-            setDownloadingId(null);
-        }
-    };
-
-    // Derived counts
-    const approvedRequests = requests.filter((r) => r.status === 'Approved');
-    const totalCohortAudited = approvedRequests.reduce((sum, r) => sum + r.patientCount, 0);
-
-    return (
-        <div className="space-y-8 animate-in fade-in duration-500">
-            
-            {/* Header section */}
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">Research & ML Analytics Portal</h1>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold mt-1">Hello, {user?.name}. Request de-identified clinical cohorts and track disease trends.</p>
-                </div>
-                
-                {/* HIPAA Privacy Badge */}
-                <div className="inline-flex items-center gap-2 bg-primary-50 dark:bg-primary-950/20 border border-primary-100/60 dark:border-primary-900/40 px-3.5 py-1.5 rounded-full select-none">
-                    <ShieldCheck className="w-4 h-4 text-primary-600 dark:text-primary-400" />
-                    <span className="text-[10px] font-black text-primary-800 dark:text-primary-400 tracking-wider uppercase">HIPAA Safe Harbor Sanitized</span>
-                </div>
+  return (
+    <div className="space-y-8 animate-fade-in pb-12">
+      {/* =================================================================== */}
+      {/* 1. RESEARCHER WELCOME HERO CARD */}
+      {/* =================================================================== */}
+      <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-r from-slate-900 via-indigo-950 to-primary-900 text-white shadow-xl relative overflow-hidden">
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md text-primary-200 text-xs font-semibold mb-3">
+              <Microscope className="w-3.5 h-3.5" /> De-Identified Data Discovery & Analytics Portal
             </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+              Welcome back, {researcherName} 🧬
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-300 mt-1.5 max-w-xl leading-relaxed">
+              BioGen Epidemiological Institute • You have access to <strong className="text-emerald-300">48,920 anonymized cohort records</strong> across <strong className="text-sky-300">14 active IRB protocol approvals</strong>.
+            </p>
+          </div>
 
-            {/* Performance metrics row */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                
-                <Card className="flex items-center gap-4 hover:-translate-y-1 hover:shadow-md transition-all duration-300 dark:hover:shadow-slate-950/40">
-                    <div className="p-3.5 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-405 rounded-xl shadow-sm dark:shadow-none">
-                        <Database className="w-5.5 h-5.5" />
-                    </div>
-                    <div>
-                        <h4 className="text-[10px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-wider">Unlocked Datasets</h4>
-                        <p className="text-xl font-black text-slate-900 dark:text-slate-100 mt-0.5">{approvedRequests.length}</p>
-                    </div>
-                </Card>
-
-                <Card className="flex items-center gap-4 hover:-translate-y-1 hover:shadow-md transition-all duration-300 dark:hover:shadow-slate-950/40">
-                    <div className="p-3.5 bg-primary-50 dark:bg-primary-950/40 text-primary-600 dark:text-primary-405 rounded-xl shadow-sm dark:shadow-none">
-                        <Search className="w-5.5 h-5.5" />
-                    </div>
-                    <div>
-                        <h4 className="text-[10px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-wider">Active Queries</h4>
-                        <p className="text-xl font-black text-slate-900 dark:text-slate-100 mt-0.5">
-                            {requests.filter((r) => r.status === 'Pending').length}
-                        </p>
-                    </div>
-                </Card>
-
-                <Card className="flex items-center gap-4 hover:-translate-y-1 hover:shadow-md transition-all duration-300 dark:hover:shadow-slate-950/40">
-                    <div className="p-3.5 bg-teal-50 dark:bg-teal-950/40 text-teal-600 dark:text-teal-405 rounded-xl shadow-sm dark:shadow-none">
-                        <TrendingUp className="w-5.5 h-5.5" />
-                    </div>
-                    <div>
-                        <h4 className="text-[10px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-wider">Patient Cohord</h4>
-                        <p className="text-xl font-black text-slate-900 dark:text-slate-100 mt-0.5">{totalCohortAudited.toLocaleString()}</p>
-                    </div>
-                </Card>
-
-                <Card className="flex items-center gap-4 hover:-translate-y-1 hover:shadow-md transition-all duration-300 dark:hover:shadow-slate-950/40">
-                    <div className="p-3.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-405 rounded-xl shadow-sm dark:shadow-none">
-                        <ShieldCheck className="w-5.5 h-5.5" />
-                    </div>
-                    <div>
-                        <h4 className="text-[10px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-wider">Model Accuracy</h4>
-                        <p className="text-xl font-black text-slate-900 dark:text-slate-100 mt-0.5">96.5%</p>
-                    </div>
-                </Card>
-
-            </div>
-
-            {/* Visual charts display using Recharts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                
-                {/* AreaChart: Disease projections */}
-                <Card>
-                    <CardHeader className="pb-3">
-                        <CardTitle className="text-base font-bold text-slate-950 dark:text-slate-50">Simulated Disease Trend Projections</CardTitle>
-                        <CardDescription>Predictive machine learning modeling for pediatric/adult cohorts (2026 - 2030)</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="h-72 w-full text-[10px] font-bold text-slate-400 dark:text-slate-500">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={predictions} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                                    <defs>
-                                        <linearGradient id="colorOnc" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.25}/>
-                                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0}/>
-                                        </linearGradient>
-                                        <linearGradient id="colorCard" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25}/>
-                                            <stop offset="95%" stopColor="#6366f1" stopOpacity={0.0}/>
-                                        </linearGradient>
-                                    </defs>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" opacity={0.08} />
-                                    <XAxis dataKey="year" stroke="currentColor" />
-                                    <YAxis stroke="currentColor" />
-                                    <Tooltip contentStyle={{
-                                        background: 'rgba(15, 23, 42, 0.95)',
-                                        backdropFilter: 'blur(8px)',
-                                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                                        borderRadius: '16px',
-                                        color: '#fff',
-                                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
-                                    }} />
-                                    <Legend iconType="circle" />
-                                    <Area type="monotone" dataKey="Oncology" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorOnc)" />
-                                    <Area type="monotone" dataKey="Cardiology" stroke="#6366f1" strokeWidth={2} fillOpacity={1} fill="url(#colorCard)" />
-                                </AreaChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                {/* BarChart: Model accuracy */}
-                <Card>
-                    <CardHeader className="pb-3">
-                        <CardTitle className="text-base font-bold text-slate-950 dark:text-slate-50">Model Accuracy & Durability Review</CardTitle>
-                        <CardDescription>Evaluation of neural network precision across distinct cohort types</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="h-72 w-full text-[10px] font-bold text-slate-400 dark:text-slate-500">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={modelAccuracyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" opacity={0.08} />
-                                    <XAxis dataKey="name" stroke="currentColor" />
-                                    <YAxis domain={[80, 100]} stroke="currentColor" />
-                                    <Tooltip contentStyle={{
-                                        background: 'rgba(15, 23, 42, 0.95)',
-                                        backdropFilter: 'blur(8px)',
-                                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                                        borderRadius: '16px',
-                                        color: '#fff',
-                                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
-                                    }} />
-                                    <Legend iconType="circle" />
-                                    <Bar dataKey="Accuracy" fill="#14b8a6" radius={[6, 6, 0, 0]} barSize={32} />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </CardContent>
-                </Card>
-
-            </div>
-
-            {/* Request Form & History Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                
-                {/* Left Column (2/3 width) - Dataset query request history */}
-                <Card className="lg:col-span-2">
-                    <CardHeader className="pb-4">
-                        <div className="flex items-center gap-2">
-                            <div className="p-2 bg-indigo-50 dark:bg-indigo-950/30 rounded-xl text-indigo-600 dark:text-indigo-400">
-                                <FileText className="w-4.5 h-4.5" />
-                            </div>
-                            <CardTitle className="text-base font-bold text-slate-950 dark:text-slate-50">Cohort Queries & Request History</CardTitle>
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
-                                <thead>
-                                    <tr className="border-b border-slate-50 dark:border-slate-800/80 text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
-                                        <th className="py-4 px-2">Study Title</th>
-                                        <th className="py-4 px-2">Disease Focus</th>
-                                        <th className="py-4 px-2">Cohort Size</th>
-                                        <th className="py-4 px-2">Status</th>
-                                        <th className="py-4 px-2 text-right">Data Sandbox</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50 dark:divide-slate-800/60">
-                                    {requests.map((req) => (
-                                        <tr key={req.id} className="group hover:bg-slate-50/40 dark:hover:bg-slate-800/20 transition-colors">
-                                            <td className="py-4 px-2 max-w-xs">
-                                                <div>
-                                                    <p className="font-bold text-slate-950 dark:text-slate-100 text-xs truncate">{req.title}</p>
-                                                    <p className="text-[9px] text-slate-400 dark:text-slate-500 font-semibold mt-0.5 truncate italic">"{req.justification}"</p>
-                                                </div>
-                                            </td>
-                                            <td className="py-4 px-2 text-xs font-semibold text-slate-700 dark:text-slate-350">
-                                                <Badge variant="outline" className="font-bold">{req.diseaseFocus}</Badge>
-                                            </td>
-                                            <td className="py-4 px-2 text-[10px] text-slate-450 dark:text-slate-500 font-bold">
-                                                {req.patientCount.toLocaleString()} patients
-                                            </td>
-                                            <td className="py-4 px-2">
-                                                {req.status === 'Approved' ? (
-                                                    <Badge variant="success" className="gap-1 font-bold">
-                                                        <CheckCircle2 className="w-3.5 h-3.5" />
-                                                        Approved
-                                                    </Badge>
-                                                ) : req.status === 'Denied' ? (
-                                                    <Badge variant="destructive" className="gap-1 font-bold">
-                                                        <XCircle className="w-3.5 h-3.5" />
-                                                        Denied
-                                                    </Badge>
-                                                ) : (
-                                                    <Badge variant="warning" className="gap-1 font-bold">
-                                                        <Clock className="w-3.5 h-3.5" />
-                                                        Pending
-                                                    </Badge>
-                                                )}
-                                            </td>
-                                            <td className="py-4 px-2 text-right">
-                                                {req.status === 'Approved' ? (
-                                                    <Button
-                                                        onClick={() => handleDownloadDataset(req.id)}
-                                                        disabled={downloadingId !== null}
-                                                        size="sm"
-                                                        className="h-8 font-bold flex items-center justify-center gap-1.5 ml-auto bg-emerald-600 hover:bg-emerald-500 shadow-sm"
-                                                    >
-                                                        {downloadingId === req.id ? (
-                                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                                        ) : (
-                                                            <Download className="w-3.5 h-3.5" />
-                                                        )}
-                                                        Download ({req.sandboxSize})
-                                                    </Button>
-                                                ) : req.status === 'Denied' ? (
-                                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold select-none italic uppercase">No access</span>
-                                                ) : (
-                                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold select-none italic uppercase">Reviewing</span>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </CardContent>
-                </Card>
- 
-                {/* Right Column (1/3 width) - Dataset Request Form */}
-                <Card>
-                    <CardHeader className="pb-4">
-                        <div className="flex items-center gap-2">
-                            <div className="p-2 bg-primary-50 dark:bg-primary-950/30 rounded-xl text-primary-600 dark:text-primary-400">
-                                <Plus className="w-4.5 h-4.5" />
-                            </div>
-                            <CardTitle className="text-base font-bold text-slate-950 dark:text-slate-50">Request New Dataset</CardTitle>
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
-                            
-                            {/* Title input */}
-                            <div>
-                                <label htmlFor="title" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                                    Research Study Title
-                                </label>
-                                <Input
-                                    id="title"
-                                    type="text"
-                                    {...register('title')}
-                                    disabled={isSubmitting}
-                                    error={!!errors.title}
-                                    placeholder="e.g. Lymphoma predictive factors..."
-                                />
-                                {errors.title && (
-                                    <p className="text-[10px] text-rose-500 font-bold mt-1.5">
-                                        {errors.title.message}
-                                    </p>
-                                )}
-                            </div>
-
-                            {/* Patient sample size count input */}
-                            <div>
-                                <label htmlFor="patientCount" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                                    Requested Cohort Size (Patients)
-                                </label>
-                                <Input
-                                    id="patientCount"
-                                    type="number"
-                                    {...register('patientCount', { valueAsNumber: true })}
-                                    disabled={isSubmitting}
-                                    error={!!errors.patientCount}
-                                    placeholder="e.g. 500"
-                                />
-                                {errors.patientCount && (
-                                    <p className="text-[10px] text-rose-500 font-bold mt-1.5">
-                                        {errors.patientCount.message}
-                                    </p>
-                                )}
-                            </div>
-
-                            {/* Disease Focus selector */}
-                            <div>
-                                <label htmlFor="diseaseFocus" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                                    Disease Specialty Focus
-                                </label>
-                                <Select
-                                    id="diseaseFocus"
-                                    {...register('diseaseFocus')}
-                                    disabled={isSubmitting}
-                                    error={!!errors.diseaseFocus}
-                                >
-                                    <option value="Oncology" className="dark:bg-slate-900">Oncology (Cancer Research)</option>
-                                    <option value="Cardiology" className="dark:bg-slate-900">Cardiology (Cardiovascular)</option>
-                                    <option value="Infectious Diseases" className="dark:bg-slate-900">Infectious Diseases</option>
-                                    <option value="Neurology" className="dark:bg-slate-900">Neurology</option>
-                                    <option value="Pulmonology" className="dark:bg-slate-900">Pulmonology (Lungs & Respiratory)</option>
-                                </Select>
-                                {errors.diseaseFocus && (
-                                    <p className="text-[10px] text-rose-500 font-bold mt-1.5">
-                                        {errors.diseaseFocus.message}
-                                    </p>
-                                )}
-                            </div>
-
-                            {/* Justification input */}
-                            <div>
-                                <label htmlFor="justification" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                                    Scientific & HIPAA Justification
-                                </label>
-                                <textarea
-                                    id="justification"
-                                    rows={3}
-                                    {...register('justification')}
-                                    disabled={isSubmitting}
-                                    className={`w-full px-3 py-2 bg-slate-50/50 dark:bg-slate-900/40 border rounded-xl focus:bg-white dark:focus:bg-slate-900 focus:ring-4 transition-all text-xs font-semibold resize-none focus-visible:outline-none dark:text-slate-100 placeholder:text-slate-400 ${
-                                        errors.justification
-                                            ? 'border-rose-300 dark:border-rose-900/50 focus:border-rose-500 focus:ring-rose-50 dark:focus:ring-rose-950/30'
-                                            : 'border-transparent dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700 focus:border-primary-500 focus:ring-primary-50 dark:focus:ring-primary-950/30'
-                                    }`}
-                                    placeholder="State clearly how you will de-identify and use this cohort dataset..."
-                                />
-                                {errors.justification && (
-                                    <p className="text-[10px] text-rose-500 font-bold mt-1.5">
-                                        {errors.justification.message}
-                                    </p>
-                                )}
-                            </div>
-
-                            {/* Submit Button */}
-                            <Button
-                                type="submit"
-                                disabled={isSubmitting}
-                                className="w-full h-11 text-xs"
-                            >
-                                {isSubmitting ? (
-                                    <>
-                                        <Loader2 className="w-4 h-4 animate-spin mr-1" />
-                                        Submitting Query Request...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Plus className="w-4 h-4 mr-1" />
-                                        Request Dataset
-                                    </>
-                                )}
-                            </Button>
-
-                        </form>
-                    </CardContent>
-                </Card> 
-            </div>
-
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => setIsRequestModalOpen(true)}
+            leftIcon={<Plus className="w-4 h-4" />}
+          >
+            Request New Cohort
+          </Button>
         </div>
-    );
+      </div>
+
+      {/* =================================================================== */}
+      {/* 2. QUICK ACTIONS SECTION (NAVIGATES TO PLACEHOLDER ROUTES) */}
+      {/* =================================================================== */}
+      <div>
+        <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 mb-4">Research Quick Actions</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          {/* Action 1: Datasets Catalog */}
+          <button
+            onClick={() => navigate('/datasets')}
+            className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:shadow-md hover:-translate-y-0.5 transition-all text-left group"
+          >
+            <div className="p-3 rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950/60 dark:text-primary-400 w-fit mb-3 group-hover:scale-110 transition-transform">
+              <Database className="w-5 h-5" />
+            </div>
+            <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">Datasets Catalog</h4>
+            <p className="text-2xs text-slate-500 dark:text-slate-400 mt-0.5">4 de-identified cohorts</p>
+          </button>
+
+          {/* Action 2: Cohort Analytics */}
+          <button
+            onClick={() => navigate('/analytics')}
+            className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:shadow-md hover:-translate-y-0.5 transition-all text-left group"
+          >
+            <div className="p-3 rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400 w-fit mb-3 group-hover:scale-110 transition-transform">
+              <BarChart2 className="w-5 h-5" />
+            </div>
+            <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">Population Analytics</h4>
+            <p className="text-2xs text-slate-500 dark:text-slate-400 mt-0.5">Cohort telemetry & trends</p>
+          </button>
+
+          {/* Action 3: Research Studies */}
+          <button
+            onClick={() => navigate('/studies')}
+            className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:shadow-md hover:-translate-y-0.5 transition-all text-left group"
+          >
+            <div className="p-3 rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400 w-fit mb-3 group-hover:scale-110 transition-transform">
+              <BookOpen className="w-5 h-5" />
+            </div>
+            <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">Active Studies</h4>
+            <p className="text-2xs text-slate-500 dark:text-slate-400 mt-0.5">3 population trials</p>
+          </button>
+
+          {/* Action 4: IRB Access Requests */}
+          <button
+            onClick={() => navigate('/consent')}
+            className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:shadow-md hover:-translate-y-0.5 transition-all text-left group"
+          >
+            <div className="p-3 rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400 w-fit mb-3 group-hover:scale-110 transition-transform">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">IRB Access Rules</h4>
+            <p className="text-2xs text-slate-500 dark:text-slate-400 mt-0.5">Protocol permissions</p>
+          </button>
+
+          {/* Action 5: Account Settings */}
+          <button
+            onClick={() => navigate('/settings')}
+            className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:shadow-md hover:-translate-y-0.5 transition-all text-left group"
+          >
+            <div className="p-3 rounded-xl bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 w-fit mb-3 group-hover:scale-110 transition-transform">
+              <Settings className="w-5 h-5" />
+            </div>
+            <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">Settings</h4>
+            <p className="text-2xs text-slate-500 dark:text-slate-400 mt-0.5">API keys & credentials</p>
+          </button>
+        </div>
+      </div>
+
+      {/* =================================================================== */}
+      {/* 3. STATISTICS CARDS (RESEARCH METRICS) */}
+      {/* =================================================================== */}
+      <div>
+        <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 mb-4">Research & Data Telemetry</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            title="Anonymized Cohort Records"
+            value="48,920"
+            change="Safe Harbor"
+            trend="up"
+            subtext="De-identified EHR entries"
+            icon={<Database className="w-5 h-5" />}
+          />
+          <StatCard
+            title="Available Datasets"
+            value="4"
+            change="2 Approved"
+            trend="neutral"
+            subtext="Parquet / CSV / FHIR"
+            icon={<FileSpreadsheet className="w-5 h-5" />}
+            iconBg="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+          />
+          <StatCard
+            title="Approved Data Requests"
+            value="14"
+            change="IRB Ethics Cleared"
+            trend="up"
+            subtext="Protocol permissions"
+            icon={<ShieldCheck className="w-5 h-5" />}
+            iconBg="bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300"
+          />
+          <StatCard
+            title="Data Exports Volume"
+            value="1.4 TB"
+            change="Parquet & CSV"
+            trend="neutral"
+            subtext="Downloaded datasets"
+            icon={<DownloadCloud className="w-5 h-5" />}
+            iconBg="bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300"
+          />
+        </div>
+      </div>
+
+      {/* =================================================================== */}
+      {/* 4. RESEARCH PROGRESS SECTION (ACTIVE PROJECTS) */}
+      {/* =================================================================== */}
+      <Card className="border-slate-200/80 dark:border-slate-800">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-indigo-600" />
+              <CardTitle className="text-base font-bold">Active Research Projects Progress</CardTitle>
+            </div>
+            <Badge variant="outline" size="sm">
+              3 Ongoing Studies
+            </Badge>
+          </div>
+          <CardDescription className="text-xs">
+            Milestones and cohort execution progress for active IRB-cleared clinical trials.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {projects.map((proj) => (
+            <div key={proj.id} className="p-4 rounded-2xl bg-slate-50/50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 space-y-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white">{proj.title}</h4>
+                  <p className="text-2xs text-slate-500">
+                    Lead: <strong className="text-slate-700 dark:text-slate-300">{proj.leadInvestigator}</strong> • Cohort Size: {proj.anonymizedCohortCount.toLocaleString()} patients
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant={proj.status === 'In Progress' ? 'success' : 'warning'} size="sm">
+                    {proj.status}
+                  </Badge>
+                  <span className="text-2xs font-mono text-slate-400">Target: {proj.targetCompletion}</span>
+                </div>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="space-y-1 pt-1">
+                <div className="flex justify-between text-2xs font-bold text-slate-500">
+                  <span>Milestone Completion</span>
+                  <span className="font-mono">{proj.progressPercent}%</span>
+                </div>
+                <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-primary-600 to-indigo-600 rounded-full transition-all duration-500"
+                    style={{ width: `${proj.progressPercent}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* =================================================================== */}
+      {/* 5. RESEARCH TREND CHARTS */}
+      {/* =================================================================== */}
+      <div>
+        <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 mb-4 flex items-center gap-2">
+          <Activity className="w-4 h-4 text-primary-600" /> Population Query Trends & Data Growth
+        </h3>
+        <HealthChart
+          title="Monthly Dataset Queries & Patient Cohort Growth (2026)"
+          subtitle="Real-time volume of de-identified query executions vs exports."
+          data={queryTrendData}
+          type="area"
+          dataKey="value"
+          secondaryDataKey="secondaryValue"
+        />
+      </div>
+
+      {/* =================================================================== */}
+      {/* 6. DATASET AVAILABILITY CATALOG WITH SEARCH & FILTER */}
+      {/* =================================================================== */}
+      <Card id="datasets-section" className="border-slate-200/80 dark:border-slate-800">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <CardTitle className="text-base font-bold">Available De-Identified Dataset Catalog</CardTitle>
+            <CardDescription className="text-xs">Browse anonymized clinical cohorts ready for IRB research query download.</CardDescription>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <SearchBox
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="Search datasets..."
+              className="max-w-xs"
+            />
+            <FilterPanel
+              groups={[
+                {
+                  id: 'category',
+                  title: 'Specialty Focus',
+                  options: [
+                    { id: 'Cardiology', label: 'Cardiology' },
+                    { id: 'Oncology', label: 'Oncology' },
+                    { id: 'Genomics', label: 'Genomics' },
+                    { id: 'Neurology', label: 'Neurology' },
+                  ],
+                },
+                {
+                  id: 'format',
+                  title: 'Data Format',
+                  options: [
+                    { id: 'Parquet', label: 'Parquet' },
+                    { id: 'CSV', label: 'CSV' },
+                    { id: 'FHIR JSON', label: 'FHIR JSON' },
+                  ],
+                },
+              ]}
+              selectedFilters={selectedFilters}
+              onChange={setSelectedFilters}
+            />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {filteredDatasets.length === 0 ? (
+              <div className="col-span-2 py-8 text-center text-xs text-slate-400">
+                No datasets matching "{searchQuery}".
+              </div>
+            ) : (
+              filteredDatasets.map((ds) => (
+                <div
+                  key={ds.id}
+                  className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:shadow-card transition-all flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <Badge variant="primary" size="sm" dot>
+                        {ds.category}
+                      </Badge>
+                      <span className="text-[10px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">
+                        {ds.anonymization}
+                      </span>
+                    </div>
+
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">{ds.title}</h4>
+
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mt-3">
+                      <span className="inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300">
+                        <Users className="w-3.5 h-3.5 text-primary-600" /> {ds.patientCount.toLocaleString()} patients
+                      </span>
+                      <span>•</span>
+                      <span className="inline-flex items-center gap-1 font-mono text-2xs">
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-slate-400" /> {ds.format} ({ds.fileSize})
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <span className="text-2xs text-slate-400">Updated: {ds.updatedAt}</span>
+                    {ds.status === 'APPROVED' ? (
+                      <Button
+                        variant="success"
+                        size="xs"
+                        onClick={() => handleDownloadDataset(ds.id, ds.title)}
+                        isLoading={downloadingId === ds.id}
+                        leftIcon={<Download className="w-3.5 h-3.5" />}
+                      >
+                        Download Dataset
+                      </Button>
+                    ) : ds.status === 'REQUESTED' ? (
+                      <Badge variant="warning" size="sm">
+                        IRB REVIEW PENDING
+                      </Badge>
+                    ) : (
+                      <Button
+                        variant="soft"
+                        size="xs"
+                        onClick={() => {
+                          setReqTitle(`Access Request: ${ds.title}`);
+                          setIsRequestModalOpen(true);
+                        }}
+                        leftIcon={<Plus className="w-3.5 h-3.5" />}
+                      >
+                        Request Access
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* =================================================================== */}
+      {/* 7. APPROVED & PENDING RESEARCH REQUESTS */}
+      {/* =================================================================== */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <Card className="lg:col-span-2 border-slate-200/80 dark:border-slate-800">
+          <CardHeader>
+            <CardTitle className="text-base font-bold">Research Proposals & IRB Approvals</CardTitle>
+            <CardDescription className="text-xs">Track status of submitted study proposals and active download keys.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {requests.map((req) => (
+                <div
+                  key={req.id}
+                  className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">{req.studyTitle}</h4>
+                      <Badge variant={req.status === 'APPROVED' ? 'success' : 'warning'} size="sm">
+                        {req.status}
+                      </Badge>
+                    </div>
+                    <p className="text-2xs text-slate-500">
+                      Focus: <strong className="text-slate-700 dark:text-slate-300">{req.diseaseFocus}</strong> • Cohort Size: {req.requestedCohortSize.toLocaleString()} patients
+                    </p>
+                    <span className="text-[10px] text-slate-400 font-mono block">Submitted: {req.dateSubmitted}</span>
+                  </div>
+
+                  {req.status === 'APPROVED' && (
+                    <Button
+                      variant="soft"
+                      size="xs"
+                      onClick={() => handleDownloadDataset(req.id, req.studyTitle)}
+                      leftIcon={<Download className="w-3.5 h-3.5" />}
+                    >
+                      Download ({req.fileSize || '350 MB'})
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Download History Log */}
+        <Card className="border-slate-200/80 dark:border-slate-800">
+          <CardHeader>
+            <CardTitle className="text-base font-bold">Export & Download Log</CardTitle>
+            <CardDescription className="text-xs">SHA-256 verified export history.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {downloadHistory.map((dl) => (
+              <div key={dl.id} className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 text-xs space-y-1">
+                <h5 className="font-bold text-slate-900 dark:text-slate-100 truncate">{dl.datasetName}</h5>
+                <div className="flex items-center justify-between text-2xs text-slate-400">
+                  <span>Format: <strong>{dl.format}</strong> ({dl.size})</span>
+                  <span>{dl.downloadedAt}</span>
+                </div>
+                <span className="text-[9px] font-mono text-slate-400 truncate block">Hash: {dl.checksum.slice(0, 16)}...</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* =================================================================== */}
+      {/* 8. DATA ACCESS AUDIT TIMELINE */}
+      {/* =================================================================== */}
+      <Card className="border-slate-200/80 dark:border-slate-800">
+        <CardHeader>
+          <CardTitle className="text-base font-bold">Research Access & Audit Timeline</CardTitle>
+          <CardDescription className="text-xs">Immutable HIPAA compliance tracking for data queries and cohort downloads.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ActivityTimeline items={activities} />
+        </CardContent>
+      </Card>
+
+      {/* =================================================================== */}
+      {/* MODAL: REQUEST NEW DATASET COHORT */}
+      {/* =================================================================== */}
+      <Dialog isOpen={isRequestModalOpen} onClose={() => setIsRequestModalOpen(false)} title="Submit Scientific Cohort Access Request" maxWidth="md">
+        <form onSubmit={handleCreateRequest} className="space-y-4">
+          <div>
+            <label className="block text-2xs font-bold text-slate-500 uppercase mb-1">Study Title / Research Purpose</label>
+            <Input placeholder="e.g. Cardiovascular Risk Factor Analytics..." value={reqTitle} onChange={(e) => setReqTitle(e.target.value)} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-2xs font-bold text-slate-500 uppercase mb-1">Therapeutic Focus</label>
+              <Select value={reqCategory} onChange={(e: any) => setReqCategory(e.target.value)}>
+                <option value="Cardiology">Cardiology</option>
+                <option value="Oncology">Oncology</option>
+                <option value="Genomics">Genomics</option>
+                <option value="Neurology">Neurology</option>
+                <option value="Endocrinology">Endocrinology</option>
+              </Select>
+            </div>
+
+            <div>
+              <label className="block text-2xs font-bold text-slate-500 uppercase mb-1">Target Cohort Size (Patients)</label>
+              <Input type="number" value={reqCohortSize} onChange={(e) => setReqCohortSize(Number(e.target.value))} />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-2xs font-bold text-slate-500 uppercase mb-1">Scientific & IRB Justification</label>
+            <Input placeholder="State de-identification and research objectives..." value={reqJustification} onChange={(e) => setReqJustification(e.target.value)} />
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" size="sm" onClick={() => setIsRequestModalOpen(false)}>Cancel</Button>
+            <Button type="submit" variant="primary" size="sm" leftIcon={<ShieldCheck className="w-4 h-4" />}>
+              Submit for IRB Review
+            </Button>
+          </DialogFooter>
+        </form>
+      </Dialog>
+    </div>
+  );
 };
 
 export default ResearcherDashboard;

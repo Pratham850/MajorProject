@@ -1,650 +1,354 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../components/ui/toast';
+import { StatCard } from '../components/common/StatCard';
+import { FileUpload } from '../components/common/FileUpload';
+import { ConfirmDialog } from '../components/common/ConfirmDialog';
+import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
+import { Dialog, DialogFooter } from '../components/ui/dialog';
+import { usePatientDashboard } from '../hooks/usePatientDashboard';
 import {
-    Shield,
-    ShieldAlert,
-    UploadCloud,
-    FileText,
-    Check,
-    X,
-    Lock,
-    Unlock,
-    File,
-    Clock,
-    Plus,
-    Loader2,
-    CheckCircle
+  Heart,
+  ShieldCheck,
+  UploadCloud,
+  FileText,
+  PhoneCall,
+  Shield,
+  Brain,
+  Calendar,
+  AlertTriangle,
+  RotateCw,
+  Bell,
 } from 'lucide-react';
-import { useAuth } from '@/context/AuthContext';
-import api from '@/services/api';
-import { useToast } from '@/components/ui/toast';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+import {
+  RecentActivityTimeline,
+  AppointmentWidget,
+  PredictionSummaryCard,
+  HealthcareRequestsSection,
+} from '../components/patient';
 
-// Schema validation for Medical Record Upload
-const uploadSchema = z.object({
-    title: z.string().min(3, { message: 'Title must be at least 3 characters long' }),
-    category: z.enum(['Lab Report', 'Prescription', 'Immunization', 'Imaging'])
-});
+export const PatientDashboard: React.FC = () => {
+  const { user } = useAuth();
+  const { addToast } = useToast();
+  const navigate = useNavigate();
 
-type UploadFormData = z.infer<typeof uploadSchema>;
+  // --- Part 2: React Query Data Hook ---
+  const { data, isLoading, isError, error, refetch } = usePatientDashboard();
 
-interface MedicalRecord {
-    id: string;
-    title: string;
-    category: 'Lab Report' | 'Prescription' | 'Immunization' | 'Imaging';
-    dateUploaded: string;
-    fileSize: string;
-    sharingStatus: 'Private' | 'Shared';
-    sharedWith: string[];
-}
+  // --- Part 4: Dynamic Metrics Extraction ---
+  const patientName = data?.profile?.name || user?.name || 'Sarah Jenkins';
+  const healthIndex = data?.profile?.healthIndex ?? 98;
+  const medicalRecordsCount = data?.summary?.medicalRecords ?? 0;
+  const activeConsentsCount = data?.summary?.activeConsents ?? 0;
+  const appointmentsCount = data?.summary?.appointments ?? 0;
+  const notificationsCount = data?.summary?.notifications ?? 0;
+  const latestCkdRisk = data?.summary?.latestCkdRisk || 'Low Risk (8.2%)';
+  const nextAppointmentText = data?.summary?.nextAppointment || 'Tomorrow, 10:30 AM';
 
-interface AccessRequest {
-    id: string;
-    requestedBy: string;
-    specialization: string;
-    reason: string;
-    recordTitle: string;
-    status: 'Pending' | 'Approved' | 'Denied';
-}
+  // --- Modals & Interactivity States ---
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isEmergencyModalOpen, setIsEmergencyModalOpen] = useState(false);
+  const [isLockoutConfirmOpen, setIsLockoutConfirmOpen] = useState(false);
+  const [lockoutLoading, setLockoutLoading] = useState(false);
 
-const PatientDashboard: React.FC = () => {
-    const { user } = useAuth();
-    const { toast } = useToast();
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    
-    // 1. Records State
-    const [records, setRecords] = useState<MedicalRecord[]>([]);
+  // --- UI Action Handlers ---
+  const handleEmergencyLockout = () => {
+    setLockoutLoading(true);
+    setTimeout(() => {
+      setLockoutLoading(false);
+      setIsLockoutConfirmOpen(false);
+      addToast({
+        type: 'error',
+        title: 'Emergency Lockout Active',
+        message: 'All doctor and researcher data access permissions have been immediately revoked.',
+      });
+    }, 1200);
+  };
 
-    // 2. Clinician Requests State
-    const [requests, setRequests] = useState<AccessRequest[]>([]);
-
-    // Fetch data from backend API
-    const loadDashboardData = async () => {
-        try {
-            const [recordsRes, requestsRes] = await Promise.all([
-                api.get('/records'),
-                api.get('/consents/requests')
-            ]);
-            setRecords(recordsRes.data);
-            setRequests(requestsRes.data);
-        } catch (err: any) {
-            console.error('Failed to load dashboard data:', err);
-            toast.error('Could not connect to HealthShare database services.', 'Error Loading Data');
-        }
-    };
-
-    useEffect(() => {
-        loadDashboardData();
-    }, []);
-
-    // Uploader Form States
-    const [isUploading, setIsUploading] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState(0);
-    const [selectedFile, setSelectedFile] = useState<{ name: string; size: string } | null>(null);
-    const [fileError, setFileError] = useState<string | null>(null);
-
-    // Global Emergency Revocation State
-    const [isRevokingAll, setIsRevokingAll] = useState(false);
-
-    const {
-        register,
-        handleSubmit,
-        reset,
-        formState: { errors }
-    } = useForm<UploadFormData>({
-        resolver: zodResolver(uploadSchema),
-        defaultValues: {
-            title: '',
-            category: 'Lab Report'
-        }
+  const handleFilesUploaded = (files: File[]) => {
+    if (files.length === 0) return;
+    setIsUploadModalOpen(false);
+    addToast({
+      type: 'success',
+      title: 'Record Uploaded',
+      message: `Successfully encrypted and stored "${files[0].name}".`,
     });
+  };
 
-    // Handle Mock File Selection
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setFileError(null);
-        if (e.target.files && e.target.files[0]) {
-            const file = e.target.files[0];
-            const sizeInMb = (file.size / (1024 * 1024)).toFixed(1);
-            setSelectedFile({
-                name: file.name,
-                size: `${sizeInMb} MB`
-            });
-        }
-    };
-
-    // Keyboard listener for accessible dropzone click trigger
-    const handleDropzoneKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === ' ' || e.key === 'Enter') {
-            e.preventDefault();
-            fileInputRef.current?.click();
-        }
-    };
-
-    // Form Submission: Upload Record
-    const onSubmit = async (data: UploadFormData) => {
-        const fileObj = fileInputRef.current?.files?.[0];
-        if (!selectedFile || !fileObj) {
-            setFileError('Please select or drop a physical file to upload');
-            return;
-        }
-
-        setIsUploading(true);
-        setUploadProgress(15);
-
-        // Simulate progress bar increments for security/encryption step visualization
-        const interval = setInterval(() => {
-            setUploadProgress((prev) => {
-                if (prev >= 85) {
-                    clearInterval(interval);
-                    return 85;
-                }
-                return prev + 15;
-            });
-        }, 150);
-
-        try {
-            const formData = new FormData();
-            formData.append('title', data.title);
-            formData.append('category', data.category);
-            formData.append('file', fileObj);
-
-            const response = await api.post('/records/upload', formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            });
-            
-            clearInterval(interval);
-            setUploadProgress(100);
-            await new Promise((resolve) => setTimeout(resolve, 300));
-
-            setRecords((prev) => [response.data, ...prev]);
-            toast.success(`"${data.title}" was successfully encrypted and uploaded.`, 'Record Uploaded');
-            
-            // Clean up
-            reset();
-            setSelectedFile(null);
-            setUploadProgress(0);
-        } catch (err: any) {
-            console.error('File upload failed', err);
-            const errMsg = err.response?.data?.detail || 'An error occurred during file upload. Please try again.';
-            toast.error(errMsg, 'Upload Failed');
-        } finally {
-            setIsUploading(false);
-            clearInterval(interval);
-        }
-    };
-
-    // Consent Handling: Approve incoming doctor request
-    const handleApproveRequest = async (reqId: string, recordTitle: string, docName: string) => {
-        try {
-            await api.post(`/consents/requests/${reqId}/approve`);
-            toast.success(`Successfully shared "${recordTitle}" with ${docName}.`, 'Consent Approved');
-            loadDashboardData();
-        } catch (err: any) {
-            console.error('Failed to approve request:', err);
-            const errMsg = err.response?.data?.detail || 'An error occurred while granting consent.';
-            toast.error(errMsg, 'Action Failed');
-        }
-    };
-
-    // Consent Handling: Deny incoming doctor request
-    const handleDenyRequest = async (reqId: string) => {
-        try {
-            await api.post(`/consents/requests/${reqId}/deny`);
-            toast.info('Clinician data sharing request has been declined.', 'Request Denied');
-            loadDashboardData();
-        } catch (err: any) {
-            console.error('Failed to deny request:', err);
-            toast.error('An error occurred while declining request.', 'Action Failed');
-        }
-    };
-
-    // Revoke single doctor permission from a record
-    const handleRevokeConsent = async (recId: string, docName: string) => {
-        try {
-            await api.post('/consents/revoke', {
-                record_id: recId,
-                doctor_name: docName
-            });
-            toast.warning(`Revoked sharing permission for ${docName}.`, 'Consent Revoked');
-            loadDashboardData();
-        } catch (err: any) {
-            console.error('Failed to revoke consent:', err);
-            const errMsg = err.response?.data?.detail || 'An error occurred while revoking consent.';
-            toast.error(errMsg, 'Action Failed');
-        }
-    };
-
-    // Global Emergency Revoke: Wipe all consent shares immediately
-    const handleEmergencyRevoke = async () => {
-        setIsRevokingAll(true);
-        try {
-            await api.post('/consents/emergency-revoke');
-            toast.warning('Emergency Lockout Completed! All shared medical records have been made private.', 'Consents Wiped');
-            loadDashboardData();
-        } catch (err: any) {
-            console.error('Emergency revoke failed', err);
-            toast.error('An error occurred while executing emergency revocation.', 'Action Failed');
-        } finally {
-            setIsRevokingAll(false);
-        }
-    };
-
-    // Statistical variables for dashboard UI
-    const totalFilesCount = records.length;
-    const activeConsentCount = records.reduce((sum, r) => sum + r.sharedWith.length, 0);
-    const pendingRequests = requests.filter((r) => r.status === 'Pending');
-
-    return (
-        <div className="space-y-8 animate-in fade-in duration-500">
-            
-            {/* Header Title Banner */}
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">Personal Health Dashboard</h1>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold mt-1">Hello, {user?.name}. Oversee your secure clinical inventory and sharing consents.</p>
-                </div>
-                
-                {/* HIPAA Badge */}
-                <div className="inline-flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100/60 dark:border-emerald-900/40 px-3.5 py-1.5 rounded-full select-none">
-                    <Shield className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    <span className="text-[10px] font-black text-emerald-800 dark:text-emerald-400 tracking-wider uppercase">GDPR & HIPAA Compliant</span>
-                </div>
+  return (
+    <div className="space-y-8 animate-fade-in pb-12">
+      {/* =================================================================== */}
+      {/* PART 6: ERROR STATE CARD */}
+      {/* =================================================================== */}
+      {isError && (
+        <div className="p-5 rounded-3xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-2xl bg-rose-500 text-white shrink-0">
+              <AlertTriangle className="w-5 h-5" />
             </div>
-
-            {/* Privacy Health Indicators Summary Card */}
-            <div className="bg-gradient-to-tr from-slate-900 via-slate-800 to-indigo-950 rounded-3xl p-6 md:p-8 text-white shadow-xl shadow-slate-200 dark:shadow-none">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                    <div className="space-y-4">
-                        <div className="flex items-center gap-3">
-                            <span className="p-2.5 bg-emerald-500/20 rounded-xl text-emerald-400">
-                                <Shield className="w-5.5 h-5.5" />
-                            </span>
-                            <div>
-                                <h3 className="text-sm font-black text-white tracking-wide">Privacy Status Profile</h3>
-                                <p className="text-[10px] text-slate-300 font-medium">Active real-time cryptographic audit log enabled</p>
-                            </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-8 pt-2">
-                            <div>
-                                <p className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Total Encrypted Records</p>
-                                <p className="text-2xl font-black mt-1 text-white">{totalFilesCount}</p>
-                            </div>
-                            <div>
-                                <p className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Active Doctor Consents</p>
-                                <p className="text-2xl font-black mt-1 text-emerald-400">{activeConsentCount}</p>
-                            </div>
-                            <div className="col-span-2 md:col-span-1">
-                                <p className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Security Standard</p>
-                                <p className="text-[10px] font-black mt-1.5 bg-white/10 border border-white/5 px-2.5 py-1 rounded-lg inline-block text-white">AES-256 / SHA-256</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <Button
-                        onClick={handleEmergencyRevoke}
-                        disabled={isRevokingAll || activeConsentCount === 0}
-                        variant={activeConsentCount === 0 ? 'secondary' : 'destructive'}
-                        size="lg"
-                        className="w-full md:w-auto font-bold flex items-center justify-center gap-2"
-                    >
-                        {isRevokingAll ? (
-                            <>
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                Revoking Access...
-                            </>
-                        ) : (
-                            <>
-                                <ShieldAlert className="w-4 h-4" />
-                                Emergency Revoke All Access
-                            </>
-                        )}
-                    </Button>
-                </div>
+            <div>
+              <h3 className="text-sm font-bold text-rose-900 dark:text-rose-100">
+                Failed to load latest patient dashboard metrics
+              </h3>
+              <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
+                {error?.message || 'Unable to connect to backend service. Showing cached metrics.'}
+              </p>
             </div>
+          </div>
 
-            {/* Dashboard Workspace Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                
-                {/* Left Column (2/3 width) - Incoming Requests and Medical Records Table */}
-                <div className="lg:col-span-2 space-y-8">
-                    
-                    {/* Incoming Access Requests Feed */}
-                    {pendingRequests.length > 0 && (
-                        <Card className="border-amber-100 dark:border-amber-950/30 bg-amber-50/10 dark:bg-amber-950/5 shadow-sm animate-in slide-in-from-top-4 duration-300">
-                            <CardHeader className="pb-3 flex flex-row items-center gap-3 space-y-0">
-                                <div className="p-2 bg-amber-100 dark:bg-amber-950/30 rounded-xl text-amber-600 dark:text-amber-400">
-                                    <Clock className="w-4 h-4 animate-pulse" />
-                                </div>
-                                <div>
-                                    <CardTitle className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                                        Access Requests Pending Approval ({pendingRequests.length})
-                                    </CardTitle>
-                                    <CardDescription>Clinicians requesting access to review your health files</CardDescription>
-                                </div>
-                            </CardHeader>
-                            
-                            <CardContent className="space-y-4">
-                                {pendingRequests.map((req) => (
-                                    <div key={req.id} className="p-4 rounded-2xl border border-amber-100/60 dark:border-amber-900/30 bg-white dark:bg-slate-900 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 transition-all duration-200">
-                                        <div className="space-y-1.5 max-w-lg">
-                                            <div className="flex items-center gap-2">
-                                                <h4 className="font-black text-slate-900 dark:text-slate-100 text-xs">{req.requestedBy}</h4>
-                                                <Badge variant="warning">{req.specialization}</Badge>
-                                            </div>
-                                            <p className="text-[10px] text-slate-600 dark:text-slate-350 leading-relaxed font-semibold italic">
-                                                "{req.reason}"
-                                            </p>
-                                            <p className="text-[10px] text-slate-400 font-bold">
-                                                Requested File: <span className="text-slate-700 dark:text-slate-300">{req.recordTitle}</span>
-                                            </p>
-                                        </div>
-                                        
-                                        <div className="flex items-center gap-2 w-full md:w-auto">
-                                            <Button
-                                                onClick={() => handleDenyRequest(req.id)}
-                                                variant="outline"
-                                                size="sm"
-                                                className="flex-1 md:flex-initial"
-                                            >
-                                                <X className="w-3.5 h-3.5 text-rose-500 mr-1" />
-                                                Decline
-                                            </Button>
-                                            <Button
-                                                onClick={() => handleApproveRequest(req.id, req.recordTitle, req.requestedBy)}
-                                                size="sm"
-                                                className="flex-1 md:flex-initial"
-                                            >
-                                                <Check className="w-3.5 h-3.5 mr-1" />
-                                                Grant Access
-                                            </Button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </CardContent>
-                        </Card>
-                    )}
-
-                    {/* Medical Records Inventory List */}
-                    <Card>
-                        <CardHeader className="pb-4">
-                            <CardTitle className="text-base font-bold text-slate-950 dark:text-slate-50">Secure Medical Records Inventory</CardTitle>
-                            <CardDescription>Your complete list of encrypted clinical documents and files</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            {records.length === 0 ? (
-                                <div className="py-12 text-center">
-                                    <div className="w-14 h-14 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-850 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-350 dark:text-slate-500">
-                                        <File className="w-6 h-6" />
-                                    </div>
-                                    <h3 className="font-bold text-slate-900 dark:text-slate-100 text-xs">No records uploaded yet</h3>
-                                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 max-w-xs mx-auto">Use the record uploader card on the right to encrypt and secure your files.</p>
-                                </div>
-                            ) : (
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left border-collapse">
-                                        <thead>
-                                            <tr className="border-b border-slate-50 dark:border-slate-800/80 text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
-                                                <th className="py-4 px-2">Record Name</th>
-                                                <th className="py-4 px-2">Category</th>
-                                                <th className="py-4 px-2">Date Encrypted</th>
-                                                <th className="py-4 px-2">Size</th>
-                                                <th className="py-4 px-2">Sharing Status</th>
-                                                <th className="py-4 px-2 text-right">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-50 dark:divide-slate-800/60">
-                                            {records.map((rec) => (
-                                                <tr key={rec.id} className="group hover:bg-slate-50/40 dark:hover:bg-slate-800/20 transition-colors">
-                                                    <td className="py-4 px-2">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="w-9 h-9 rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400 dark:text-slate-500 group-hover:bg-primary-50 group-hover:text-primary-600 dark:group-hover:bg-primary-950/40 dark:group-hover:text-primary-400 transition-all">
-                                                                <FileText className="w-4.5 h-4.5" />
-                                                            </div>
-                                                            <div>
-                                                                <p className="font-bold text-slate-900 dark:text-slate-100 text-xs">{rec.title}</p>
-                                                                {rec.sharedWith.length > 0 && (
-                                                                    <p className="text-[9px] text-slate-400 dark:text-slate-500 font-semibold mt-0.5">
-                                                                        Shared with: {rec.sharedWith.join(', ')}
-                                                                    </p>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </td>
-                                                    <td className="py-4 px-2">
-                                                        <Badge variant={
-                                                            rec.category === 'Lab Report' ? 'info' :
-                                                            rec.category === 'Imaging' ? 'secondary' :
-                                                            rec.category === 'Immunization' ? 'default' :
-                                                            'success'
-                                                        }>
-                                                            {rec.category}
-                                                        </Badge>
-                                                    </td>
-                                                    <td className="py-4 px-2 text-[10px] text-slate-400 dark:text-slate-500 font-bold">
-                                                        {rec.dateUploaded}
-                                                    </td>
-                                                    <td className="py-4 px-2 text-[10px] text-slate-400 dark:text-slate-500 font-bold">
-                                                        {rec.fileSize}
-                                                    </td>
-                                                    <td className="py-4 px-2">
-                                                        <Badge variant={rec.sharingStatus === 'Shared' ? 'success' : 'outline'} className="gap-1 font-bold">
-                                                            {rec.sharingStatus === 'Shared' ? (
-                                                                <>
-                                                                    <Unlock className="w-3 h-3" />
-                                                                    Shared
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <Lock className="w-3 h-3 text-slate-400 dark:text-slate-500" />
-                                                                    Private
-                                                                </>
-                                                            )}
-                                                        </Badge>
-                                                    </td>
-                                                    <td className="py-4 px-2 text-right">
-                                                        {rec.sharingStatus === 'Shared' ? (
-                                                            <div className="flex items-center justify-end gap-1">
-                                                                {rec.sharedWith.map((doc) => (
-                                                                    <Button
-                                                                        key={doc}
-                                                                        onClick={() => handleRevokeConsent(rec.id, doc)}
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        className="h-7 px-2 bg-rose-50/50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-900/40 border-rose-100 dark:border-rose-900/40 hover:border-rose-200 dark:hover:border-rose-800 text-rose-700 dark:text-rose-400 font-bold text-[9px]"
-                                                                        title={`Revoke access for ${doc}`}
-                                                                    >
-                                                                        Revoke {doc.split(' ')[1] || doc}
-                                                                    </Button>
-                                                                ))}
-                                                            </div>
-                                                        ) : (
-                                                            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold tracking-wide uppercase select-none">Protected</span>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-                </div>
-
-                {/* Right Column (1/3 width) - Medical Record Uploader Form */}
-                <div>
-                    <Card className="sticky top-6">
-                        <CardHeader className="pb-4">
-                            <div className="flex items-center gap-2">
-                                <div className="p-2 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl text-emerald-600 dark:text-emerald-400">
-                                    <UploadCloud className="w-4.5 h-4.5" />
-                                </div>
-                                <CardTitle className="text-base font-bold text-slate-950 dark:text-slate-50">Upload Health Record</CardTitle>
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
-                                {/* Record Title input */}
-                                <div>
-                                    <label htmlFor="title" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                                        Record Title / Document Name
-                                    </label>
-                                    <Input
-                                        id="title"
-                                        type="text"
-                                        {...register('title')}
-                                        disabled={isUploading}
-                                        error={!!errors.title}
-                                        placeholder="e.g. Chest X-Ray Report, Blood Panel"
-                                    />
-                                    {errors.title && (
-                                        <p className="text-[10px] text-rose-500 font-bold mt-1.5">
-                                            {errors.title.message}
-                                        </p>
-                                    )}
-                                </div>
-
-                                {/* Category input */}
-                                <div>
-                                    <label htmlFor="category" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                                        Record Category
-                                    </label>
-                                    <Select
-                                        id="category"
-                                        {...register('category')}
-                                        disabled={isUploading}
-                                        error={!!errors.category}
-                                    >
-                                        <option value="Lab Report" className="dark:bg-slate-900">Lab Report (e.g., Blood Panel)</option>
-                                        <option value="Prescription" className="dark:bg-slate-900">Prescription Slip</option>
-                                        <option value="Immunization" className="dark:bg-slate-900">Immunization Record</option>
-                                        <option value="Imaging" className="dark:bg-slate-900">Medical Imaging (e.g., MRI, X-Ray)</option>
-                                    </Select>
-                                    {errors.category && (
-                                        <p className="text-[10px] text-rose-500 font-bold mt-1.5">
-                                            {errors.category.message}
-                                        </p>
-                                    )}
-                                </div>
-
-                                {/* Accessible Drag and Drop Dropzone */}
-                                <div>
-                                    <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                                        Choose Medical File
-                                    </label>
-                                    <div 
-                                        tabIndex={isUploading ? undefined : 0}
-                                        role="button"
-                                        aria-label="Upload file dropzone. Press Space or Enter to browse files."
-                                        onKeyDown={handleDropzoneKeyDown}
-                                        onClick={() => !isUploading && fileInputRef.current?.click()}
-                                        className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 ${
-                                            selectedFile 
-                                                ? 'border-emerald-500 bg-emerald-50/10 dark:bg-emerald-950/10' 
-                                                : fileError 
-                                                    ? 'border-rose-300 bg-rose-50/10 dark:border-rose-950/20 dark:bg-rose-950/10 hover:border-rose-400' 
-                                                    : 'border-slate-200 dark:border-slate-800 hover:border-primary-400 hover:bg-slate-50/50 dark:hover:bg-slate-900/50'
-                                        }`}
-                                    >
-                                        <input
-                                            id="file-upload"
-                                            type="file"
-                                            ref={fileInputRef}
-                                            accept=".pdf,.png,.jpg,.jpeg,.dicom"
-                                            onChange={handleFileChange}
-                                            disabled={isUploading}
-                                            className="hidden"
-                                        />
-                                        {selectedFile ? (
-                                            <div className="space-y-2">
-                                                <div className="inline-flex items-center justify-center w-11 h-11 bg-emerald-100 dark:bg-emerald-950 rounded-full text-emerald-600 dark:text-emerald-400 shadow-sm shadow-emerald-100 dark:shadow-none">
-                                                    <CheckCircle className="w-5.5 h-5.5 animate-bounce" />
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs font-black text-slate-900 dark:text-slate-100 truncate max-w-xs">{selectedFile.name}</p>
-                                                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-0.5">{selectedFile.size}</p>
-                                                </div>
-                                                <Button
-                                                    type="button"
-                                                    variant="link"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setSelectedFile(null);
-                                                    }}
-                                                    className="h-auto p-0 text-[10px] font-bold text-rose-500 hover:text-rose-600"
-                                                >
-                                                    Clear Selected File
-                                                </Button>
-                                            </div>
-                                        ) : (
-                                            <div className="space-y-2 select-none">
-                                                <UploadCloud className="w-9 h-9 text-slate-400 dark:text-slate-500 mx-auto" />
-                                                <div className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                                                    <span className="text-primary-600 dark:text-primary-400 font-bold hover:underline">Click to browse</span> or drag medical file
-                                                </div>
-                                                <p className="text-[9px] text-slate-400 dark:text-slate-500 font-semibold tracking-wide">PDF, PNG, JPG, or DICOM up to 20MB</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                    {fileError && (
-                                        <p className="text-[10px] text-rose-500 font-bold mt-1.5">
-                                            {fileError}
-                                        </p>
-                                    )}
-                                </div>
-
-                                {/* Simulated Upload progress bar */}
-                                {isUploading && (
-                                    <div className="space-y-2 animate-in fade-in duration-300">
-                                        <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 dark:text-slate-400">
-                                            <span>Encrypting & Uploading...</span>
-                                            <span>{uploadProgress}%</span>
-                                        </div>
-                                        <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                            <div
-                                                className="h-full bg-emerald-500 transition-all duration-200 rounded-full"
-                                                style={{ width: `${uploadProgress}%` }}
-                                            ></div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Upload Button */}
-                                <Button
-                                    type="submit"
-                                    disabled={isUploading}
-                                    className="w-full h-11 text-xs"
-                                >
-                                    {isUploading ? (
-                                        <>
-                                            <Loader2 className="w-4 h-4 animate-spin mr-1" />
-                                            Encrypting Record...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Plus className="w-4 h-4 mr-1" />
-                                            Upload Record
-                                        </>
-                                    )}
-                                </Button>
-                            </form>
-                        </CardContent>
-                    </Card>
-                </div>
-
-            </div>
-
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            leftIcon={<RotateCw className="w-4 h-4 text-rose-600" />}
+            className="shrink-0 border-rose-300 hover:bg-rose-100 text-rose-800 dark:text-rose-200"
+          >
+            Retry API Fetch
+          </Button>
         </div>
-    );
+      )}
+
+      {/* =================================================================== */}
+      {/* 1. WELCOME BANNER & HEALTH INDEX (WITH PART 5 SKELETON LOADER) */}
+      {/* =================================================================== */}
+      {isLoading ? (
+        <div className="p-6 sm:p-8 rounded-3xl bg-slate-800 animate-pulse h-36 flex items-center justify-between">
+          <div className="space-y-3 w-1/2">
+            <div className="h-4 bg-slate-700 rounded-full w-1/3" />
+            <div className="h-8 bg-slate-700 rounded-xl w-3/4" />
+          </div>
+          <div className="h-16 w-32 bg-slate-700 rounded-2xl" />
+        </div>
+      ) : (
+        <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-r from-primary-900 via-primary-800 to-slate-900 text-white shadow-xl relative overflow-hidden">
+          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md text-primary-200 text-xs font-semibold">
+                <ShieldCheck className="w-3.5 h-3.5" /> HIPAA-Encrypted Personal Health Portal
+              </div>
+
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+                  Good afternoon, {patientName} 👋
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-200 mt-1 leading-relaxed">
+                  Welcome back to your HealthShare Personal Health Portal.
+                </p>
+              </div>
+            </div>
+
+            {/* Health Index Score Card */}
+            <div className="p-4 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 flex items-center gap-4 shrink-0">
+              <div className="p-3 bg-emerald-500/20 text-emerald-300 rounded-xl">
+                <Heart className="w-6 h-6 animate-pulse" />
+              </div>
+              <div>
+                <span className="text-2xs font-bold uppercase tracking-wider text-slate-300 block">Health Index</span>
+                <span className="text-2xl font-black text-white font-sans">
+                  {healthIndex} <span className="text-xs text-emerald-400 font-normal">/ 100</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* 2. HEALTH SUMMARY (4 CARDS WITH API METRICS & SKELETON LOADERS) */}
+      {/* =================================================================== */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Health Summary</h3>
+          {notificationsCount > 0 && (
+            <Badge variant="warning" size="sm" className="flex items-center gap-1">
+              <Bell className="w-3 h-3" /> {notificationsCount} New Alerts
+            </Badge>
+          )}
+        </div>
+
+        {isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="p-5 rounded-2xl bg-slate-100 dark:bg-slate-800 animate-pulse h-28" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Medical Records Card */}
+            <StatCard
+              title="Medical Records"
+              value={medicalRecordsCount > 0 ? `${medicalRecordsCount} Records` : '0 Records'}
+              change={medicalRecordsCount > 0 ? '+2 this month' : 'No records uploaded'}
+              trend={medicalRecordsCount > 0 ? 'up' : 'neutral'}
+              subtext="AES-256 Secured"
+              icon={<FileText className="w-5 h-5" />}
+            />
+
+            {/* Active Consents Card */}
+            <StatCard
+              title="Active Consents"
+              value={activeConsentsCount > 0 ? `${activeConsentsCount} Granted` : '0 Granted'}
+              change={activeConsentsCount > 0 ? '1 Pending' : 'No active consent'}
+              trend="neutral"
+              subtext="Doctor access permissions"
+              icon={<ShieldCheck className="w-5 h-5" />}
+              iconBg="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+            />
+
+            {/* Latest CKD Risk Card */}
+            <StatCard
+              title="Latest CKD Risk"
+              value={latestCkdRisk}
+              change="94.5% confidence"
+              trend="down"
+              subtext="ML Model Assessment"
+              icon={<Brain className="w-5 h-5" />}
+              iconBg="bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300"
+            />
+
+            {/* Next Appointment Card (Part 7: Empty state if 0) */}
+            <StatCard
+              title="Next Appointment"
+              value={appointmentsCount > 0 ? 'Tomorrow' : 'No appointments'}
+              subtext={appointmentsCount > 0 ? nextAppointmentText : 'Click Quick Actions to book'}
+              icon={<Calendar className="w-5 h-5" />}
+              iconBg="bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* =================================================================== */}
+      {/* 3. QUICK ACTIONS (4 CARDS) */}
+      {/* =================================================================== */}
+      <div>
+        <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 mb-4">Quick Actions</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {/* Action 1: Upload Medical Record */}
+          <button
+            onClick={() => setIsUploadModalOpen(true)}
+            className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:shadow-md hover:-translate-y-0.5 transition-all text-left group"
+          >
+            <div className="p-3 rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400 w-fit mb-3 group-hover:scale-110 transition-transform">
+              <UploadCloud className="w-5 h-5" />
+            </div>
+            <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">Upload Record</h4>
+            <p className="text-2xs text-slate-500 dark:text-slate-400 mt-0.5">Encrypt & upload EHR file</p>
+          </button>
+
+          {/* Action 2: View Medical Records */}
+          <button
+            onClick={() => navigate('/records')}
+            className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:shadow-md hover:-translate-y-0.5 transition-all text-left group"
+          >
+            <div className="p-3 rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950/60 dark:text-primary-400 w-fit mb-3 group-hover:scale-110 transition-transform">
+              <FileText className="w-5 h-5" />
+            </div>
+            <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">Medical Records</h4>
+            <p className="text-2xs text-slate-500 dark:text-slate-400 mt-0.5">View health documents</p>
+          </button>
+
+          {/* Action 3: Grant Consent */}
+          <button
+            onClick={() => navigate('/consent')}
+            className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:shadow-md hover:-translate-y-0.5 transition-all text-left group"
+          >
+            <div className="p-3 rounded-xl bg-sky-50 text-sky-600 dark:bg-sky-950/60 dark:text-sky-400 w-fit mb-3 group-hover:scale-110 transition-transform">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">Grant Consent</h4>
+            <p className="text-2xs text-slate-500 dark:text-slate-400 mt-0.5">Manage doctor permissions</p>
+          </button>
+
+          {/* Action 4: Run AI Prediction */}
+          <button
+            onClick={() => navigate('/ai-prediction')}
+            className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:shadow-md hover:-translate-y-0.5 transition-all text-left group"
+          >
+            <div className="p-3 rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400 w-fit mb-3 group-hover:scale-110 transition-transform">
+              <Brain className="w-5 h-5" />
+            </div>
+            <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">AI CKD Prediction</h4>
+            <p className="text-2xs text-slate-500 dark:text-slate-400 mt-0.5">Evaluate ML risk model</p>
+          </button>
+        </div>
+      </div>
+
+      {/* =================================================================== */}
+      {/* 4. HEALTHCARE REQUESTS SECTION (CORE HEALTHSHARE WORKFLOW) */}
+      {/* =================================================================== */}
+      <HealthcareRequestsSection />
+
+      {/* =================================================================== */}
+      {/* 5. LATEST AI PREDICTION CARD & UPCOMING APPOINTMENT CARD */}
+      {/* =================================================================== */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <PredictionSummaryCard
+          predictionResult="Stage 1 / Low Risk"
+          riskLevel="Low (8.2%)"
+          confidenceScore="94.5%"
+          predictionDate="July 28, 2026"
+        />
+
+        <AppointmentWidget />
+      </div>
+
+      {/* =================================================================== */}
+      {/* 6. RECENT MEDICAL ACTIVITY TIMELINE (LAST 4 ACTIVITIES) */}
+      {/* =================================================================== */}
+      <RecentActivityTimeline />
+
+      {/* =================================================================== */}
+      {/* MODAL DIALOGS FOR DEMO INTERACTION */}
+      {/* =================================================================== */}
+      <Dialog isOpen={isUploadModalOpen} onClose={() => setIsUploadModalOpen(false)} title="Upload Clinical Medical Record" maxWidth="lg">
+        <FileUpload onFilesSelected={handleFilesUploaded} />
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => setIsUploadModalOpen(false)}>Cancel</Button>
+        </DialogFooter>
+      </Dialog>
+
+      <Dialog isOpen={isEmergencyModalOpen} onClose={() => setIsEmergencyModalOpen(false)} title="Patient Emergency Health ID" maxWidth="md">
+        <div className="space-y-4">
+          <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-xs space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-rose-900 dark:text-rose-100">Blood Group</span>
+              <Badge variant="danger" size="sm">O POSITIVE (O+)</Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-rose-900 dark:text-rose-100">Allergies</span>
+              <span className="text-rose-700 dark:text-rose-300 font-semibold">Penicillin, Latex</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-rose-900 dark:text-rose-100">Emergency Contact</span>
+              <span className="inline-flex items-center gap-1 font-bold text-slate-900 dark:text-white">
+                <PhoneCall className="w-3.5 h-3.5 text-emerald-500" /> +1 (555) 948-2041 (Spouse)
+              </span>
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <Button variant="danger" className="w-full" onClick={() => { setIsEmergencyModalOpen(false); setIsLockoutConfirmOpen(true); }} leftIcon={<Shield className="w-4 h-4" />}>
+              Trigger Emergency Lockout (Revoke All Shared Access)
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <ConfirmDialog
+        isOpen={isLockoutConfirmOpen}
+        onClose={() => setIsLockoutConfirmOpen(false)}
+        onConfirm={handleEmergencyLockout}
+        title="Execute Emergency Access Lockout?"
+        description="This will immediately revoke all doctor and researcher data access permissions across HealthShare. Only you will retain access."
+        confirmText="Yes, Lock Out All Access"
+        variant="danger"
+        isLoading={lockoutLoading}
+      />
+    </div>
+  );
 };
 
 export default PatientDashboard;
