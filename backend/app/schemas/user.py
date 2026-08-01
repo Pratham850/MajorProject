@@ -2,7 +2,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator
+from pydantic import BaseModel, EmailStr, Field, validator
 from app.models import UserRole
 
 
@@ -14,17 +14,18 @@ class UserBase(BaseModel):
 
 class UserResponse(UserBase):
     id: int
+    name: Optional[str] = None
     is_active: bool
     is_verified: bool
     created_at: datetime
     updated_at: datetime
 
-    @computed_field
-    @property
-    def name(self) -> str:
-        return self.full_name
+    @validator("name", pre=True, always=True)
+    def set_name(cls, v: Optional[str], values: dict) -> Optional[str]:
+        return v or values.get("full_name")
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
 
 class UserUpdate(BaseModel):
@@ -38,8 +39,7 @@ class PasswordChange(BaseModel):
         description="New password must be at least 8 characters long with uppercase, lowercase, digit, and special character.",
     )
 
-    @field_validator("new_password")
-    @classmethod
+    @validator("new_password")
     def validate_password_complexity(cls, v: str) -> str:
         if len(v) < 8:
             raise ValueError("Password must be at least 8 characters long.")
@@ -56,3 +56,4 @@ class PasswordChange(BaseModel):
 
 class UserStatusUpdate(BaseModel):
     is_active: bool
+

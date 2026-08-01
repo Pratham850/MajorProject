@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 
 class PatientProfileSchema(BaseModel):
@@ -27,7 +27,8 @@ class PatientDashboardResponse(BaseModel):
   pendingRequestsCount: int
   securityStandard: str = "AES-256 / SHA-256"
 
-  model_config = ConfigDict(from_attributes=True)
+  class Config:
+    orm_mode = True
 
 
 class DoctorDashboardResponse(BaseModel):
@@ -36,7 +37,8 @@ class DoctorDashboardResponse(BaseModel):
   recordsShared: int
   appointments: int
 
-  model_config = ConfigDict(from_attributes=True)
+  class Config:
+    orm_mode = True
 
 
 class ResearcherDashboardResponse(BaseModel):
@@ -45,7 +47,8 @@ class ResearcherDashboardResponse(BaseModel):
   patientCohort: int
   modelAccuracy: str = "96.5%"
 
-  model_config = ConfigDict(from_attributes=True)
+  class Config:
+    orm_mode = True
 
 
 class AdminDashboardResponse(BaseModel):
@@ -55,4 +58,6 @@ class AdminDashboardResponse(BaseModel):
   totalAuditLogs: int
   systemHealth: str = "100% Operational"
 
-  model_config = ConfigDict(from_attributes=True)
+  class Config:
+    orm_mode = True
+

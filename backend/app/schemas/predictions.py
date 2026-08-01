@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 
 class PredictionRequest(BaseModel):
@@ -15,7 +15,8 @@ class PredictionResponse(BaseModel):
     predictedValue: float
     message: str
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
 
 class PredictionHistoryItem(BaseModel):
@@ -25,4 +26,6 @@ class PredictionHistoryItem(BaseModel):
     predictedValue: float
     createdAt: str
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
+

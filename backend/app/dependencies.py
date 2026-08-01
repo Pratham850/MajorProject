@@ -8,25 +8,13 @@ Provides:
 All functions are async and designed for FastAPI's ``Depends`` system.
 """
 
-from __future__ import annotations
-
-from typing import Callable
+from typing import Callable, Iterable, Union
 
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import async_session_factory
+from app.database import async_session_factory, get_db
 from app.models import User, UserRole
-
-
-async def get_db() -> AsyncSession:
-    """Yield an ``AsyncSession`` for a request.
-
-    The session is created from ``async_session_factory`` (see ``database.py``) and
-    closed automatically after the request finishes.
-    """
-    async with async_session_factory() as session:
-        yield session
 
 
 async def get_current_user(request: Request) -> User:
@@ -51,16 +39,26 @@ async def get_current_user(request: Request) -> User:
     return user
 
 
-def require_role(*allowed_roles: UserRole) -> Callable[[User], User]:
-    """Dependency factory that ensures the current user has one of the ``allowed_roles``.
+def require_role(roles: Union[UserRole, Iterable[UserRole], list, set] = None, *allowed_roles: UserRole) -> Callable[[User], User]:
+    """Dependency factory that ensures the current user has one of the allowed roles.
     Admin role is granted superuser override access across endpoints.
     """
-    roles_list = list(allowed_roles)
-    if UserRole.ADMIN not in roles_list:
-        roles_list.append(UserRole.ADMIN)
+    flat_roles = set()
+    if roles:
+        if isinstance(roles, (list, tuple, set)):
+            flat_roles.update(roles)
+        else:
+            flat_roles.add(roles)
+    if allowed_roles:
+        flat_roles.update(allowed_roles)
+
+    flat_roles.add(UserRole.ADMIN)
+    flat_roles.add("admin")
 
     async def dependency(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role not in roles_list:
+        user_role = current_user.role if isinstance(current_user.role, str) else current_user.role.value
+        allowed_values = {r.value if hasattr(r, "value") else str(r) for r in flat_roles}
+        if user_role not in allowed_values:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient permissions",

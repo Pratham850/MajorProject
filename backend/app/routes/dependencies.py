@@ -1,4 +1,3 @@
-from __future__ import annotations
 from typing import List, Optional, Union
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -20,8 +19,8 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """
-    Dependency that extracts, decodes, and verifies the JWT Access Token from the Authorization header.
-    Reuses request.state.user if populated by JWTAuthMiddleware to avoid duplicate DB queries per request.
+    Dependency that extracts, decodes, and verifies the JWT Access Token.
+    Queries the User from the current request's DB session to avoid session detachment errors.
     Returns the authenticated active User instance.
     """
     credentials_exception = HTTPException(
@@ -30,35 +29,18 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    # 1. Reuse user from middleware context if available
-    state_user = getattr(request.state, "user", None)
-    if state_user is not None:
-        if not state_user.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User account is inactive.",
-            )
-        return state_user
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id and credentials and credentials.credentials:
+        try:
+            payload = decode_token(credentials.credentials)
+            if payload.get("type") == "access":
+                user_id = int(payload.get("sub"))
+        except (JWTError, ValueError):
+            pass
 
-    # 2. Check credentials presence from HTTPBearer
-    if credentials is None:
+    if not user_id:
         raise credentials_exception
 
-    # 3. Direct token verification fallback
-    token = credentials.credentials
-    try:
-        payload = decode_token(token)
-        user_id_str: str = payload.get("sub")
-        token_type: str = payload.get("type")
-
-        if user_id_str is None or token_type != "access":
-            raise credentials_exception
-            
-        user_id = int(user_id_str)
-    except (JWTError, ValueError):
-        raise credentials_exception
-
-    # Query active user from database
     result = await db.execute(select(User).filter(User.id == user_id))
     user = result.scalars().first()
 
@@ -90,8 +72,11 @@ class RoleChecker:
     def __call__(self, current_user: User = Depends(get_current_user)) -> User:
         user_role_str = (
             current_user.role if isinstance(current_user.role, str) else current_user.role.value
-        )
-        if user_role_str not in self.allowed_roles:
+        ).lower()
+        allowed_roles_lower = [r.lower() for r in self.allowed_roles]
+        allowed_roles_lower.append("admin")
+
+        if user_role_str not in allowed_roles_lower:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Access denied. Requires one of roles: {self.allowed_roles}",

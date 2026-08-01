@@ -1,6 +1,7 @@
 from __future__ import annotations
+from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -35,6 +36,8 @@ class AccessRequestRepository:
         reason: str,
         record_id: Optional[int] = None,
         status: str = "Pending",
+        requested_duration: Optional[str] = None,
+        expires_at: Optional[datetime] = None,
     ) -> AccessRequest:
         """Create and persist a new AccessRequest."""
         new_req = AccessRequest(
@@ -43,9 +46,13 @@ class AccessRequestRepository:
             record_id=record_id,
             reason=reason,
             status=status,
+            requested_duration=requested_duration,
+            expires_at=expires_at,
         )
         self.db.add(new_req)
         await self.db.flush()
+        await self.db.commit()
+        await self.db.refresh(new_req)
         return new_req
 
     async def list_by_patient(self, patient_id: int) -> List[AccessRequest]:
@@ -74,8 +81,26 @@ class AccessRequestRepository:
         )
         return list(result.scalars().all())
 
-    async def update_status(self, access_req: AccessRequest, status: str) -> AccessRequest:
+    async def update_status(
+        self,
+        access_req: AccessRequest,
+        status: str,
+        response_message: Optional[str] = None
+    ) -> AccessRequest:
         """Update request status ('Approved' or 'Rejected')."""
         access_req.status = status
+        if response_message is not None:
+            access_req.response_message = response_message
         self.db.add(access_req)
+        await self.db.commit()
+        await self.db.refresh(access_req)
         return access_req
+
+    async def count_pending_for_doctor(self, doctor_id: int) -> int:
+        result = await self.db.execute(
+            select(func.count(AccessRequest.id)).where(
+                AccessRequest.requester_id == doctor_id,
+                AccessRequest.status == "Pending"
+            )
+        )
+        return result.scalar() or 0

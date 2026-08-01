@@ -7,6 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.main import create_app
 from app.database import get_db
+import app.models
 from app.models import Base
 import app.database as db_module
 import app.middleware.auth_middleware as auth_mw

@@ -3,18 +3,29 @@ from typing import Any, Dict, List
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import User, AuditLog, UserRole
+from app.models import User, AuditLog
 from app.repositories.consent_repository import ConsentRepository
 from app.repositories.record_repository import RecordRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.consents import GrantConsentRequest, RevokeConsentRequest
-from app.services.record_service import parse_record_id
+
+
+def parse_record_id(record_id_str: str) -> int:
+    """Helper utility to parse 'rec-12' or '12' into integer record ID."""
+    clean = str(record_id_str).replace("rec-", "")
+    try:
+        return int(clean)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid medical record ID format: '{record_id_str}'",
+        )
 
 
 class ConsentService:
     """
-    Service layer containing business logic for Granting, Revoking,
-    and Listing Patient-Doctor Consent permissions with Audit Logging.
+    Service Layer containing business logic for Patient Consents.
+    Handles granting access, revoking access, listing active consents, and audit logging.
     """
 
     def __init__(
@@ -33,10 +44,9 @@ class ConsentService:
         """
         Business Logic:
         1. Parse record ID and verify patient ownership.
-        2. Lookup doctor user by email and verify role is doctor.
-        3. Check if active consent already exists.
-        4. Persist new Consent record.
-        5. Write AuditLog record.
+        2. Identify target doctor user.
+        3. Check if consent grant already exists.
+        4. Write new consent entry & AuditLog record.
         """
         rec_id = parse_record_id(req.record_id)
         record = await self.record_repo.get_by_id(rec_id)
@@ -50,7 +60,7 @@ class ConsentService:
         if not doctor:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Doctor with specified email address not found.")
 
-        doc_role = doctor.role if isinstance(doctor.role, str) else doctor.role.value
+        doc_role = (doctor.role if isinstance(doctor.role, str) else doctor.role.value).lower()
         if doc_role != "doctor":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target user is not registered as a doctor.")
 
@@ -132,7 +142,7 @@ class ConsentService:
         1. If Patient: returns active consents granted for patient's records.
         2. If Doctor: returns active consents awarded to the doctor.
         """
-        user_role = current_user.role if isinstance(current_user.role, str) else current_user.role.value
+        user_role = (current_user.role if isinstance(current_user.role, str) else current_user.role.value).lower()
 
         if user_role == "patient":
             consents = await self.consent_repo.list_by_patient(current_user.id)
@@ -140,9 +150,9 @@ class ConsentService:
                 {
                     "id": f"con-{c.id}",
                     "recordId": f"rec-{c.record_id}",
-                    "recordTitle": c.record.title,
-                    "doctorName": c.doctor.full_name,
-                    "doctorEmail": c.doctor.email,
+                    "recordTitle": c.record.title if c.record else "Medical Record",
+                    "doctorName": c.doctor.full_name if c.doctor else "Doctor",
+                    "doctorEmail": c.doctor.email if c.doctor else "",
                 }
                 for c in consents
             ]
@@ -153,7 +163,7 @@ class ConsentService:
                 {
                     "id": f"con-{c.id}",
                     "recordId": f"rec-{c.record_id}",
-                    "recordTitle": c.record.title,
+                    "recordTitle": c.record.title if c.record else "Medical Record",
                     "patientName": c.record.patient.full_name if c.record and c.record.patient else "Patient",
                 }
                 for c in consents

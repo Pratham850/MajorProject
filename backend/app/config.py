@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 
 from pathlib import Path
-from pydantic.v1 import BaseSettings, Field, RedisDsn
+from pydantic import BaseSettings, Field, RedisDsn
 
 
 
@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     # Core
     PROJECT_NAME: str = Field(default="HealthShare Backend", env="PROJECT_NAME")
     DEBUG: bool = Field(default=False, env="DEBUG")
+    UPLOAD_DIR: str = Field(default="uploads", env="UPLOAD_DIR")
 
     # Database (MySQL)
     MYSQL_USER: str = Field(..., env="MYSQL_USER")
@@ -30,6 +31,9 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = Field(..., env="JWT_SECRET_KEY")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30, env="ACCESS_TOKEN_EXPIRE_MINUTES")
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7, env="REFRESH_TOKEN_EXPIRE_DAYS")
+
+    # Gemini AI
+    GEMINI_API_KEY: Optional[str] = Field(None, env="GEMINI_API_KEY")
 
     # External services (placeholders)
     STRIPE_API_KEY: str = Field(default="sk_test_placeholder", env="STRIPE_API_KEY")

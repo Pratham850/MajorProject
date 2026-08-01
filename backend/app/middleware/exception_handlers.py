@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 from app.logging_config import logger
@@ -31,18 +32,31 @@ def register_exception_handlers(app: FastAPI):
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         logger.warning(f"ValidationError path={request.url.path}: {exc.errors()}")
-        errors = exc.errors()
+        raw_errors = exc.errors()
         message = "Input validation failed. Please check field requirements."
-        if errors:
-            first_err = errors[0]
-            msg = first_err.get("msg", "")
-            if msg.startswith("Value error, "):
-                msg = msg[len("Value error, "):]
-            loc_str = str(first_err.get("loc", [])).lower()
-            err_type = first_err.get("type", "")
-            if "email" in loc_str and ("email" in err_type or "value_error" in err_type or "email" in msg.lower()):
-                msg = "Please enter a valid email address."
-            message = msg
+
+        if raw_errors:
+            pwd_err = next(
+                (e for e in raw_errors if "password" in [str(x).lower() for x in e.get("loc", ())] or "Password must contain" in e.get("msg", "")),
+                None
+            )
+            if pwd_err:
+                message = "Password must contain at least 8 characters, one uppercase letter, one lowercase letter, one number, and one special character."
+            else:
+                first_err = raw_errors[0]
+                err_msg = first_err.get("msg", "")
+                if err_msg.startswith("Value error, "):
+                    err_msg = err_msg[len("Value error, "):]
+                loc_str = str(first_err.get("loc", ())).lower()
+
+                if "email" in loc_str:
+                    message = "Please enter a valid email address."
+                elif "role" in loc_str:
+                    message = f"Invalid role specified: '{first_err.get('input', '')}'. Allowed: patient, doctor, researcher, admin"
+                elif err_msg:
+                    message = err_msg
+
+        sanitized_details = jsonable_encoder(raw_errors)
 
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -52,7 +66,7 @@ def register_exception_handlers(app: FastAPI):
                 "error": {
                     "code": 422,
                     "message": message,
-                    "details": errors,
+                    "details": sanitized_details,
                     "type": "ValidationError",
                 },
             },

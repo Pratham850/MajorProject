@@ -1,11 +1,14 @@
 from __future__ import annotations
+from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 
 class GrantConsentRequest(BaseModel):
     record_id: str = Field(..., description="Format: 'rec-<id>' or integer string")
     doctor_email: str = Field(..., description="Email of the doctor to grant consent to")
+    purpose: Optional[str] = Field(None, description="Purpose of consent grant")
+    expires_at: Optional[datetime] = Field(None, description="Consent expiration timestamp")
 
 
 class RevokeConsentRequest(BaseModel):
@@ -20,5 +23,12 @@ class ConsentResponse(BaseModel):
     recordTitle: str
     doctorName: str
     doctorEmail: str
+    status: str = "Pending"
+    purpose: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
+
+

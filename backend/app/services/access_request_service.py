@@ -86,13 +86,11 @@ class AccessRequestService:
 
     async def list_requests(self, current_user: User) -> List[Dict[str, Any]]:
         """
-        Business Logic:
-        1. If Patient: returns incoming requests sent to patient.
-        2. If Doctor: returns outgoing requests submitted by doctor.
+        Retrieves pending & historic access requests for patient or doctor.
         """
         user_role = current_user.role if isinstance(current_user.role, str) else current_user.role.value
 
-        if user_role == "patient":
+        if user_role == "patient" or user_role == "PATIENT":
             requests = await self.access_req_repo.list_by_patient(current_user.id)
             return [
                 {
@@ -107,7 +105,7 @@ class AccessRequestService:
                 for r in requests
             ]
 
-        elif user_role == "doctor":
+        elif user_role == "doctor" or user_role == "DOCTOR":
             requests = await self.access_req_repo.list_by_doctor(current_user.id)
             return [
                 {
@@ -134,7 +132,7 @@ class AccessRequestService:
         Business Logic:
         1. Verify target patient owns request.
         2. Update status to 'Approved' or 'Rejected'.
-        3. If Approved and record specified, automatically grant Consent relation!
+        3. If Approved, auto-grant Consent relation!
         4. Writes compliance AuditLog record.
         """
         try:
@@ -146,7 +144,7 @@ class AccessRequestService:
         if not access_req:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Access request not found.")
 
-        if access_req.patient_id != current_user.id:
+        if access_req.patient_id != current_user.id and current_user.role not in ["admin", "ADMIN"]:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only target patient can update request status.")
 
         new_status = status_data.status.capitalize()
@@ -155,11 +153,19 @@ class AccessRequestService:
 
         await self.access_req_repo.update_status(access_req, new_status)
 
-        # Auto-grant consent if approved and record identified
-        if new_status == "Approved" and access_req.record_id:
-            existing = await self.consent_repo.get_existing(access_req.record_id, access_req.requester_id)
-            if not existing:
-                await self.consent_repo.create(access_req.record_id, access_req.requester_id)
+        # Auto-grant consent if approved
+        if new_status == "Approved":
+            record_ids = []
+            if access_req.record_id:
+                record_ids.append(access_req.record_id)
+            else:
+                patient_records = await self.record_repo.list_by_patient(access_req.patient_id)
+                record_ids = [r.id for r in patient_records]
+
+            for rec_id in record_ids:
+                existing = await self.consent_repo.get_existing(rec_id, access_req.requester_id)
+                if not existing:
+                    await self.consent_repo.create(rec_id, access_req.requester_id)
 
         audit = AuditLog(
             user_id=current_user.id,

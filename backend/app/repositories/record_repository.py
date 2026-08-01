@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, Optional
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -47,35 +47,40 @@ class RecordRepository:
         await self.db.flush()
         return new_record
 
-    async def list_by_patient(self, patient_id: int) -> List[MedicalRecord]:
+    async def list_by_patient(self, patient_id: int, limit: Optional[int] = None) -> List[MedicalRecord]:
         """Retrieve all medical records for a specific patient."""
-        result = await self.db.execute(
+        query = (
             select(MedicalRecord)
             .filter(MedicalRecord.patient_id == patient_id)
             .options(selectinload(MedicalRecord.consents).selectinload(Consent.doctor))
             .order_by(MedicalRecord.id.desc())
         )
+        if limit:
+            query = query.limit(limit)
+        result = await self.db.execute(query)
         return list(result.scalars().all())
 
     async def list_consented_for_doctor(self, doctor_id: int) -> List[MedicalRecord]:
-        """Retrieve all medical records shared with a doctor via active consents."""
+        """Retrieve medical records accessible to doctor via patient consent grants."""
         result = await self.db.execute(
-            select(Consent)
-            .filter(Consent.doctor_id == doctor_id)
-            .options(selectinload(Consent.record).selectinload(MedicalRecord.patient))
+            select(MedicalRecord)
+            .join(MedicalRecord.consents)
+            .filter(Consent.doctor_id == doctor_id, Consent.status == "Active")
+            .options(selectinload(MedicalRecord.patient))
+            .order_by(MedicalRecord.id.desc())
         )
-        consents = result.scalars().all()
-        return [c.record for c in consents if c.record]
+        return list(result.scalars().all())
 
-    async def update(self, record: MedicalRecord, title: Optional[str], category: Optional[str]) -> MedicalRecord:
-        """Update metadata fields for a medical record."""
-        if title is not None:
+    async def update(self, record: MedicalRecord, title: Optional[str] = None, category: Optional[str] = None) -> MedicalRecord:
+        """Update record metadata."""
+        if title:
             record.title = title
-        if category is not None:
+        if category:
             record.category = category
-        self.db.add(record)
+        await self.db.flush()
         return record
 
     async def delete(self, record: MedicalRecord) -> None:
-        """Delete a medical record from database."""
+        """Delete medical record entry."""
         await self.db.delete(record)
+        await self.db.flush()

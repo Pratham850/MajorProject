@@ -7,7 +7,10 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from app.middleware.auth_middleware import JWTAuthMiddleware
 from app.middleware.exception_handlers import register_exception_handlers
-from app.routes import access_requests, audit, auth, consents, dashboard, ml, notifications, records, research, user
+from app.routes import (
+    access_requests, ai_predictions, appointments, audit, auth, consents,
+    dashboard, ml, notifications, patient_dashboard, patient_profile, prescriptions, profiles, records, research, user
+)
 
 
 @asynccontextmanager
@@ -22,9 +25,9 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="HealthShare Backend",
+        title="HealthShare Backend API",
         version="1.0.0",
-        description="Production-ready healthcare data exchange & ML trend prediction backend.",
+        description="Production-ready healthcare data exchange, appointments, profiles, AI predictions & research platform.",
         lifespan=lifespan,
     )
 
@@ -43,17 +46,23 @@ def create_app() -> FastAPI:
     # Register Exception Handlers
     register_exception_handlers(app)
 
-    # Register routers
-    app.include_router(auth.router, prefix="/auth", tags=["auth"])
-    app.include_router(user.router, prefix="/users", tags=["users"])
-    app.include_router(records.router, prefix="/records", tags=["records"])
-    app.include_router(consents.router, prefix="/consents", tags=["consents"])
-    app.include_router(access_requests.router, prefix="/access-requests", tags=["access-requests"])
-    app.include_router(research.router, prefix="/research", tags=["research"])
-    app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
-    app.include_router(ml.router, prefix="/ml", tags=["ml"])
-    app.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
-    app.include_router(audit.router, prefix="/audit-logs", tags=["audit-logs"])
+    # Register routers (Directly matching specified endpoint paths)
+    app.include_router(auth.router, prefix="/auth", tags=["Auth"])
+    app.include_router(user.router, prefix="/users", tags=["Users"])
+    app.include_router(patient_dashboard.router)  # GET /api/patient/dashboard
+    app.include_router(patient_profile.router)  # GET /patient/profile, PUT /patient/profile
+    app.include_router(profiles.router)  # /patient/profile, /doctor/profile, /researcher/profile
+    app.include_router(records.router)  # /medical-records
+    app.include_router(appointments.router)  # /appointments
+    app.include_router(notifications.router)  # /notifications
+    app.include_router(ai_predictions.router)  # /ai
+    app.include_router(prescriptions.router)  # /prescriptions
+    app.include_router(consents.router)  # /consents
+    app.include_router(access_requests.router)  # /access-requests
+    app.include_router(research.router)  # /cohort-queries
+    app.include_router(audit.router)  # /audit-logs
+    app.include_router(dashboard.router)  # /dashboard
+    app.include_router(ml.router, prefix="/ml", tags=["ML"])
 
     @app.get("/healthz", include_in_schema=False)
     async def health_check():

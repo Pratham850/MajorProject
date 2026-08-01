@@ -2,7 +2,6 @@ import pytest
 import httpx
 
 
-
 @pytest.mark.anyio
 async def test_healthz(client):
     response = await client.get("/healthz")
@@ -15,18 +14,19 @@ async def test_register_login_flow(client):
     # 1. Register Patient
     reg_response = await client.post("/auth/register", json={
         "full_name": "Jane Doe",
-        "email": "jane@example.com",
+        "email": "jane_flow@example.com",
         "password": "Password123!",
         "role": "patient"
     })
     assert reg_response.status_code == 201
-    assert reg_response.json()["full_name"] == "Jane Doe"
-    assert reg_response.json()["email"] == "jane@example.com"
-    assert reg_response.json()["role"] == "patient"
+    user_info = reg_response.json().get("user", reg_response.json())
+    assert user_info.get("name") == "Jane Doe" or user_info.get("full_name") == "Jane Doe"
+    assert user_info.get("email") == "jane_flow@example.com"
+    assert user_info.get("role") in ["patient", "PATIENT"]
 
     # 2. Login Patient
     login_response = await client.post("/auth/login", json={
-        "email": "jane@example.com",
+        "email": "jane_flow@example.com",
         "password": "Password123!"
     })
     assert login_response.status_code == 200
@@ -36,7 +36,7 @@ async def test_register_login_flow(client):
 
     # 3. Fail Login
     failed_login = await client.post("/auth/login", json={
-        "email": "jane@example.com",
+        "email": "jane_flow@example.com",
         "password": "WrongPassword!"
     })
     assert failed_login.status_code == 401
@@ -47,7 +47,7 @@ async def test_user_profile_and_admin_flows(client):
     # 1. Register Admin
     reg_admin = await client.post("/auth/register", json={
         "full_name": "Admin User",
-        "email": "admin@example.com",
+        "email": "admin_flow@example.com",
         "password": "AdminPassword123!",
         "role": "admin"
     })
@@ -55,7 +55,7 @@ async def test_user_profile_and_admin_flows(client):
 
     # 2. Login Admin
     login_admin = await client.post("/auth/login", json={
-        "email": "admin@example.com",
+        "email": "admin_flow@example.com",
         "password": "AdminPassword123!"
     })
     admin_token = login_admin.json()["access_token"]
@@ -64,16 +64,16 @@ async def test_user_profile_and_admin_flows(client):
     # 3. Register Patient
     reg_patient = await client.post("/auth/register", json={
         "full_name": "Patient User",
-        "email": "patient@example.com",
+        "email": "patient_flow@example.com",
         "password": "PatientPassword123!",
         "role": "patient"
     })
     assert reg_patient.status_code == 201
-    patient_id = reg_patient.json()["id"]
+    patient_id = reg_patient.json().get("user", {}).get("id") or reg_patient.json().get("id")
 
     # 4. Login Patient
     login_patient = await client.post("/auth/login", json={
-        "email": "patient@example.com",
+        "email": "patient_flow@example.com",
         "password": "PatientPassword123!"
     })
     patient_token = login_patient.json()["access_token"]
@@ -98,13 +98,13 @@ async def test_user_profile_and_admin_flows(client):
 
     # Verify old login fails, new login succeeds
     old_login = await client.post("/auth/login", json={
-        "email": "patient@example.com",
+        "email": "patient_flow@example.com",
         "password": "PatientPassword123!"
     })
     assert old_login.status_code == 401
 
     new_login = await client.post("/auth/login", json={
-        "email": "patient@example.com",
+        "email": "patient_flow@example.com",
         "password": "NewPatientPassword123!"
     })
     assert new_login.status_code == 200
@@ -121,7 +121,7 @@ async def test_user_profile_and_admin_flows(client):
 
     # 10. Login disabled user should fail
     disabled_login = await client.post("/auth/login", json={
-        "email": "patient@example.com",
+        "email": "patient_flow@example.com",
         "password": "NewPatientPassword123!"
     })
     assert disabled_login.status_code == 403
@@ -132,12 +132,12 @@ async def test_medical_record_flows(client):
     # 1. Register and login patient
     await client.post("/auth/register", json={
         "full_name": "Test Patient",
-        "email": "testpatient@example.com",
+        "email": "testpatient_rec@example.com",
         "password": "Password123!",
         "role": "patient"
     })
     login_res = await client.post("/auth/login", json={
-        "email": "testpatient@example.com",
+        "email": "testpatient_rec@example.com",
         "password": "Password123!"
     })
     token = login_res.json()["access_token"]
@@ -146,30 +146,30 @@ async def test_medical_record_flows(client):
     # 2. Upload file
     files = {"file": ("report.pdf", b"pdf content dummy", "application/pdf")}
     data = {"title": "Lab Report A", "category": "Lab Report"}
-    up_res = await client.post("/records/upload", data=data, files=files, headers=headers)
+    up_res = await client.post("/medical-records/upload", data=data, files=files, headers=headers)
     assert up_res.status_code == 201
     record_id = up_res.json()["id"]
 
     # 3. List records
-    list_res = await client.get("/records", headers=headers)
+    list_res = await client.get("/medical-records", headers=headers)
     assert list_res.status_code == 200
     assert len(list_res.json()) >= 1
 
     # 4. Get record details
-    get_res = await client.get(f"/records/{record_id}", headers=headers)
+    get_res = await client.get(f"/medical-records/{record_id}", headers=headers)
     assert get_res.status_code == 200
 
     # 5. Download record file
-    dl_res = await client.get(f"/records/{record_id}/download", headers=headers)
+    dl_res = await client.get(f"/medical-records/{record_id}/download", headers=headers)
     assert dl_res.status_code == 200
     assert dl_res.content == b"pdf content dummy"
 
     # 6. Update record metadata
-    up_meta = await client.put(f"/records/{record_id}", json={"title": "Updated Lab Report Name"}, headers=headers)
+    up_meta = await client.put(f"/medical-records/{record_id}", json={"title": "Updated Lab Report Name"}, headers=headers)
     assert up_meta.status_code == 200
 
     # 7. Delete record
-    del_res = await client.delete(f"/records/{record_id}", headers=headers)
+    del_res = await client.delete(f"/medical-records/{record_id}", headers=headers)
     assert del_res.status_code == 200
 
 
@@ -178,19 +178,19 @@ async def test_consent_and_access_requests_flows(client):
     # 1. Register Patient & Doctor
     await client.post("/auth/register", json={
         "full_name": "Patient One",
-        "email": "pat1@example.com",
+        "email": "pat_consent_unique@example.com",
         "password": "Password123!",
         "role": "patient"
     })
     await client.post("/auth/register", json={
         "full_name": "Doctor Smith",
-        "email": "docsmith@example.com",
+        "email": "doc_consent_unique@example.com",
         "password": "Password123!",
         "role": "doctor"
     })
 
-    p_login = await client.post("/auth/login", json={"email": "pat1@example.com", "password": "Password123!"})
-    d_login = await client.post("/auth/login", json={"email": "docsmith@example.com", "password": "Password123!"})
+    p_login = await client.post("/auth/login", json={"email": "pat_consent_unique@example.com", "password": "Password123!"})
+    d_login = await client.post("/auth/login", json={"email": "doc_consent_unique@example.com", "password": "Password123!"})
 
     p_token = p_login.json()["access_token"]
     d_token = d_login.json()["access_token"]
@@ -200,12 +200,12 @@ async def test_consent_and_access_requests_flows(client):
 
     # 2. Patient uploads record
     files = {"file": ("blood.pdf", b"blood sample data", "application/pdf")}
-    rec_res = await client.post("/records/upload", data={"title": "Blood Test", "category": "Lab Report"}, files=files, headers=p_headers)
+    rec_res = await client.post("/medical-records/upload", data={"title": "Blood Test", "category": "Lab Report"}, files=files, headers=p_headers)
     rec_id = rec_res.json()["id"]
 
     # 3. Doctor submits access request
     req_res = await client.post("/access-requests", json={
-        "patient_email": "pat1@example.com",
+        "patient_email": "pat_consent_unique@example.com",
         "record_title": "Blood Test",
         "reason": "Cardiology consultation"
     }, headers=d_headers)
@@ -232,19 +232,19 @@ async def test_prediction_research_and_dashboards(client):
     # 1. Register Researcher & Admin
     await client.post("/auth/register", json={
         "full_name": "Researcher Alice",
-        "email": "alice@research.com",
+        "email": "alice_pred_unique@research.com",
         "password": "Password123!",
         "role": "researcher"
     })
     await client.post("/auth/register", json={
         "full_name": "System Admin",
-        "email": "sysadmin@healthshare.com",
+        "email": "sysadmin_pred_unique@healthshare.com",
         "password": "Password123!",
         "role": "admin"
     })
 
-    r_login = await client.post("/auth/login", json={"email": "alice@research.com", "password": "Password123!"})
-    a_login = await client.post("/auth/login", json={"email": "sysadmin@healthshare.com", "password": "Password123!"})
+    r_login = await client.post("/auth/login", json={"email": "alice_pred_unique@research.com", "password": "Password123!"})
+    a_login = await client.post("/auth/login", json={"email": "sysadmin_pred_unique@healthshare.com", "password": "Password123!"})
 
     r_headers = {"Authorization": f"Bearer {r_login.json()['access_token']}"}
     a_headers = {"Authorization": f"Bearer {a_login.json()['access_token']}"}

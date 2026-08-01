@@ -1,9 +1,14 @@
 from __future__ import annotations
+from datetime import date
 from typing import Any, Dict
 from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AccessRequest, AuditLog, CohortQuery, Consent, MedicalRecord, Notification, User
+from app.models import (
+    AccessRequest, Appointment, AppointmentStatus, AuditLog, CohortQuery,
+    Consent, MedicalRecord, Notification, User, UserRole
+)
+from app.repositories.profile_repository import PatientProfileRepository, DoctorProfileRepository, ResearcherProfileRepository
 
 
 class DashboardService:
@@ -17,135 +22,265 @@ class DashboardService:
 
     async def get_patient_dashboard(self, current_user: User) -> Dict[str, Any]:
         """
-        Business Logic:
-        Aggregates total uploaded medical records, active consent grants,
-        notifications, and pending access requests for patient home view.
+        Patient Dashboard Return:
+        profile, medical_records_count, appointments_count, active_consents,
+        notifications_count, recent_records, recent_notifications
         """
-        r_count = await self.db.execute(
-            select(func.count(MedicalRecord.id)).filter(MedicalRecord.patient_id == current_user.id)
-        )
-        total_files = r_count.scalar() or 0
+        patient_profile_repo = PatientProfileRepository(self.db)
+        profile_obj = await patient_profile_repo.get_by_user_id(current_user.id)
+        profile_data = {
+            "id": current_user.id,
+            "full_name": current_user.full_name,
+            "email": current_user.email,
+            "date_of_birth": str(profile_obj.date_of_birth) if profile_obj and profile_obj.date_of_birth else None,
+            "gender": profile_obj.gender if profile_obj else None,
+            "blood_group": profile_obj.blood_group if profile_obj else None,
+            "phone": profile_obj.phone if profile_obj else None,
+        }
 
-        c_count = await self.db.execute(
+        # medical_records_count
+        r_res = await self.db.execute(
+            select(func.count(MedicalRecord.id)).where(MedicalRecord.patient_id == current_user.id)
+        )
+        medical_records_count = r_res.scalar() or 0
+
+        # appointments_count
+        app_res = await self.db.execute(
+            select(func.count(Appointment.id)).where(Appointment.patient_id == current_user.id)
+        )
+        appointments_count = app_res.scalar() or 0
+
+        # active_consents
+        c_res = await self.db.execute(
             select(func.count(Consent.id))
             .join(MedicalRecord, Consent.record_id == MedicalRecord.id)
-            .filter(MedicalRecord.patient_id == current_user.id)
+            .where(MedicalRecord.patient_id == current_user.id)
         )
-        active_consents = c_count.scalar() or 0
+        active_consents = c_res.scalar() or 0
 
-        req_count = await self.db.execute(
-            select(func.count(AccessRequest.id))
-            .filter(AccessRequest.patient_id == current_user.id, AccessRequest.status == "Pending")
+        # notifications_count
+        n_res = await self.db.execute(
+            select(func.count(Notification.id)).where(Notification.user_id == current_user.id)
         )
-        pending_requests = req_count.scalar() or 0
+        notifications_count = n_res.scalar() or 0
 
-        n_count = await self.db.execute(
-            select(func.count(Notification.id)).filter(Notification.user_id == current_user.id)
+        # recent_records
+        records_query = await self.db.execute(
+            select(MedicalRecord)
+            .where(MedicalRecord.patient_id == current_user.id)
+            .order_by(MedicalRecord.created_at.desc())
+            .limit(5)
         )
-        notifications_count = n_count.scalar() or 0
+        recent_records = [
+            {
+                "id": r.id,
+                "title": r.title,
+                "category": r.category,
+                "file_path": r.file_path,
+                "created_at": r.created_at.isoformat()
+            }
+            for r in records_query.scalars().all()
+        ]
 
-        first_name = current_user.full_name.split()[0] if current_user.full_name else "Sarah"
+        # recent_notifications
+        notifs_query = await self.db.execute(
+            select(Notification)
+            .where(Notification.user_id == current_user.id)
+            .order_by(Notification.created_at.desc())
+            .limit(5)
+        )
+        recent_notifications = [
+            {
+                "id": n.id,
+                "title": n.title,
+                "message": n.message,
+                "type": n.type.value if hasattr(n.type, "value") else str(n.type),
+                "is_read": n.is_read,
+                "created_at": n.created_at.isoformat()
+            }
+            for n in notifs_query.scalars().all()
+        ]
 
         return {
-            "profile": {
-                "name": first_name,
-                "healthIndex": 98,
-            },
-            "summary": {
-                "medicalRecords": total_files if total_files > 0 else 5,
-                "appointments": 1,
-                "activeConsents": active_consents if active_consents > 0 else 3,
-                "notifications": notifications_count if notifications_count > 0 else 4,
-                "latestCkdRisk": "Low Risk (8.2%)",
-                "nextAppointment": "Tomorrow, 10:30 AM",
-            },
-            "totalFilesCount": total_files if total_files > 0 else 5,
-            "activeConsentCount": active_consents if active_consents > 0 else 3,
-            "pendingRequestsCount": pending_requests,
-            "securityStandard": "AES-256 / SHA-256",
+            "profile": profile_data,
+            "medical_records_count": medical_records_count,
+            "appointments_count": appointments_count,
+            "active_consents": active_consents,
+            "notifications_count": notifications_count,
+            "recent_records": recent_records,
+            "recent_notifications": recent_notifications,
         }
 
     async def get_doctor_dashboard(self, current_user: User) -> Dict[str, Any]:
         """
-        Business Logic:
-        Aggregates total unique patients, active consultations, and records shared.
+        Doctor Dashboard Return:
+        today_appointments, pending_requests, patients_seen, notifications
         """
-        patients_count = await self.db.execute(
-            select(func.count(distinct(MedicalRecord.patient_id)))
-            .join(Consent, Consent.record_id == MedicalRecord.id)
-            .filter(Consent.doctor_id == current_user.id)
-        )
-        base_patients = patients_count.scalar() or 0
+        today = date.today()
 
-        shared_count = await self.db.execute(
-            select(func.count(Consent.id)).filter(Consent.doctor_id == current_user.id)
+        # today_appointments
+        app_res = await self.db.execute(
+            select(func.count(Appointment.id)).where(
+                Appointment.doctor_id == current_user.id,
+                Appointment.appointment_date == today
+            )
         )
-        base_shared = shared_count.scalar() or 0
+        today_appointments = app_res.scalar() or 0
+
+        # pending_requests
+        req_res = await self.db.execute(
+            select(func.count(AccessRequest.id)).where(
+                AccessRequest.requester_id == current_user.id,
+                AccessRequest.status == "Pending"
+            )
+        )
+        pending_requests = req_res.scalar() or 0
+
+        # patients_seen
+        patients_res = await self.db.execute(
+            select(func.count(distinct(Appointment.patient_id))).where(
+                Appointment.doctor_id == current_user.id,
+                Appointment.status == AppointmentStatus.COMPLETED
+            )
+        )
+        patients_seen = patients_res.scalar() or 0
+
+        # notifications
+        notifs_query = await self.db.execute(
+            select(Notification)
+            .where(Notification.user_id == current_user.id)
+            .order_by(Notification.created_at.desc())
+            .limit(10)
+        )
+        notifications = [
+            {
+                "id": n.id,
+                "title": n.title,
+                "message": n.message,
+                "type": n.type.value if hasattr(n.type, "value") else str(n.type),
+                "is_read": n.is_read,
+                "created_at": n.created_at.isoformat()
+            }
+            for n in notifs_query.scalars().all()
+        ]
 
         return {
-            "totalPatients": base_patients + 12,
-            "activeConsults": base_patients + 4,
-            "recordsShared": base_shared + 480,
-            "appointments": 18,
+            "today_appointments": today_appointments,
+            "pending_requests": pending_requests,
+            "patients_seen": patients_seen,
+            "notifications": notifications,
         }
 
     async def get_researcher_dashboard(self, current_user: User) -> Dict[str, Any]:
         """
-        Business Logic:
-        Aggregates unlocked research datasets, pending queries, and patient cohort sums.
+        Research Dashboard Return:
+        cohort_queries, approved_queries, pending_queries, recent_activity
         """
-        unlocked_res = await self.db.execute(
-            select(func.count(CohortQuery.id))
-            .filter(CohortQuery.researcher_id == current_user.id, CohortQuery.status == "Approved")
+        # cohort_queries count
+        c_res = await self.db.execute(
+            select(func.count(CohortQuery.id)).where(CohortQuery.researcher_id == current_user.id)
         )
-        unlocked_datasets = unlocked_res.scalar() or 0
+        cohort_queries = c_res.scalar() or 0
 
-        active_res = await self.db.execute(
-            select(func.count(CohortQuery.id))
-            .filter(CohortQuery.researcher_id == current_user.id, CohortQuery.status == "Pending")
+        # approved_queries
+        app_res = await self.db.execute(
+            select(func.count(CohortQuery.id)).where(
+                CohortQuery.researcher_id == current_user.id,
+                CohortQuery.status == "Approved"
+            )
         )
-        active_queries = active_res.scalar() or 0
+        approved_queries = app_res.scalar() or 0
 
-        cohort_res = await self.db.execute(
-            select(func.sum(CohortQuery.patient_count))
-            .filter(CohortQuery.researcher_id == current_user.id, CohortQuery.status == "Approved")
+        # pending_queries
+        pend_res = await self.db.execute(
+            select(func.count(CohortQuery.id)).where(
+                CohortQuery.researcher_id == current_user.id,
+                CohortQuery.status == "Pending"
+            )
         )
-        patient_cohort = cohort_res.scalar() or 0
+        pending_queries = pend_res.scalar() or 0
+
+        # recent_activity
+        recent_q = await self.db.execute(
+            select(CohortQuery)
+            .where(CohortQuery.researcher_id == current_user.id)
+            .order_by(CohortQuery.created_at.desc())
+            .limit(5)
+        )
+        recent_activity = [
+            {
+                "id": q.id,
+                "title": q.title,
+                "disease_focus": q.disease_focus,
+                "patient_count": q.patient_count,
+                "status": q.status,
+                "created_at": q.created_at.isoformat()
+            }
+            for q in recent_q.scalars().all()
+        ]
 
         return {
-            "unlockedDatasets": unlocked_datasets,
-            "activeQueries": active_queries,
-            "patientCohort": int(patient_cohort) if patient_cohort else 0,
-            "modelAccuracy": "96.5%",
+            "cohort_queries": cohort_queries,
+            "approved_queries": approved_queries,
+            "pending_queries": pending_queries,
+            "recent_activity": recent_activity,
         }
 
     async def get_admin_dashboard(self, current_user: User) -> Dict[str, Any]:
         """
-        Business Logic:
-        Aggregates platform-wide metrics (users count, records count, consents, audit logs).
+        Admin Dashboard Return:
+        total_users, patients, doctors, researchers, medical_records, appointments, system_activity
         """
-        u_res = await self.db.execute(select(func.count(User.id)))
-        total_users = u_res.scalar() or 0
+        # total_users
+        tot_users_res = await self.db.execute(select(func.count(User.id)))
+        total_users = tot_users_res.scalar() or 0
 
-        r_res = await self.db.execute(select(func.count(MedicalRecord.id)))
-        total_records = r_res.scalar() or 0
+        # patients
+        pat_res = await self.db.execute(select(func.count(User.id)).where(User.role == UserRole.PATIENT))
+        patients = pat_res.scalar() or 0
 
-        c_res = await self.db.execute(select(func.count(Consent.id)))
-        total_consents = c_res.scalar() or 0
+        # doctors
+        doc_res = await self.db.execute(select(func.count(User.id)).where(User.role == UserRole.DOCTOR))
+        doctors = doc_res.scalar() or 0
 
-        a_res = await self.db.execute(select(func.count(AuditLog.id)))
-        total_audits = a_res.scalar() or 0
+        # researchers
+        res_res = await self.db.execute(select(func.count(User.id)).where(User.role == UserRole.RESEARCHER))
+        researchers = res_res.scalar() or 0
+
+        # medical_records
+        rec_res = await self.db.execute(select(func.count(MedicalRecord.id)))
+        medical_records = rec_res.scalar() or 0
+
+        # appointments
+        app_res = await self.db.execute(select(func.count(Appointment.id)))
+        appointments = app_res.scalar() or 0
+
+        # system_activity (recent audit logs)
+        audit_query = await self.db.execute(
+            select(AuditLog).order_by(AuditLog.timestamp.desc()).limit(10)
+        )
+        system_activity = [
+            {
+                "id": a.id,
+                "user_id": a.user_id,
+                "action": a.action,
+                "details": a.details,
+                "timestamp": a.timestamp.isoformat()
+            }
+            for a in audit_query.scalars().all()
+        ]
 
         return {
-            "totalUsersCount": total_users,
-            "totalMedicalRecords": total_records,
-            "totalConsentsGranted": total_consents,
-            "totalAuditLogs": total_audits,
-            "systemHealth": "100% Operational",
+            "total_users": total_users,
+            "patients": patients,
+            "doctors": doctors,
+            "researchers": researchers,
+            "medical_records": medical_records,
+            "appointments": appointments,
+            "system_activity": system_activity,
         }
 
     async def get_stats_by_role(self, current_user: User) -> Dict[str, Any]:
-        """Routes dashboard stats call dynamically based on user role."""
         role_str = current_user.role if isinstance(current_user.role, str) else current_user.role.value
         if role_str == "patient":
             return await self.get_patient_dashboard(current_user)

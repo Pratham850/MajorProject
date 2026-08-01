@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 
 class CohortQueryCreate(BaseModel):
@@ -24,7 +24,8 @@ class CohortQueryResponse(BaseModel):
     sandboxSize: Optional[str] = None
     dateCreated: str
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
 
 class AnonymizedCohortResults(BaseModel):
@@ -37,4 +38,6 @@ class AnonymizedCohortResults(BaseModel):
     demographicsSummary: dict
     sandboxDownloadUrl: str
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
+

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import List, Optional
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -91,3 +91,11 @@ class UserRepository:
         await self.db.commit()
         await self.db.refresh(user)
         return user
+
+    async def count_total(self) -> int:
+        result = await self.db.execute(select(func.count(User.id)))
+        return result.scalar() or 0
+
+    async def count_by_role(self, role: UserRole) -> int:
+        result = await self.db.execute(select(func.count(User.id)).where(User.role == role))
+        return result.scalar() or 0

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, Optional
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -31,7 +31,7 @@ class ResearchRepository:
         disease_focus: str,
         patient_count: int,
         justification: str,
-        status: str,
+        status: str = "Pending",
         sandbox_size: Optional[str] = None,
     ) -> CohortQuery:
         """Create and persist a new CohortQuery."""
@@ -46,24 +46,32 @@ class ResearchRepository:
         )
         self.db.add(query)
         await self.db.flush()
+        await self.db.commit()
+        await self.db.refresh(query)
         return query
 
-    async def list_by_researcher(self, researcher_id: int) -> List[CohortQuery]:
+    async def list_by_researcher(self, researcher_id: int, limit: Optional[int] = None) -> List[CohortQuery]:
         """Retrieve queries created by a researcher."""
-        result = await self.db.execute(
+        q = (
             select(CohortQuery)
             .filter(CohortQuery.researcher_id == researcher_id)
             .order_by(CohortQuery.id.desc())
         )
+        if limit:
+            q = q.limit(limit)
+        result = await self.db.execute(q)
         return list(result.scalars().all())
 
-    async def list_all(self) -> List[CohortQuery]:
+    async def list_all(self, limit: Optional[int] = None) -> List[CohortQuery]:
         """Retrieve all cohort queries (for admin)."""
-        result = await self.db.execute(
+        q = (
             select(CohortQuery)
             .options(selectinload(CohortQuery.researcher))
             .order_by(CohortQuery.id.desc())
         )
+        if limit:
+            q = q.limit(limit)
+        result = await self.db.execute(q)
         return list(result.scalars().all())
 
     async def update_status(self, query: CohortQuery, status: str, sandbox_size: Optional[str] = None) -> CohortQuery:
@@ -72,4 +80,19 @@ class ResearchRepository:
         if sandbox_size:
             query.sandbox_size = sandbox_size
         self.db.add(query)
+        await self.db.commit()
+        await self.db.refresh(query)
         return query
+
+    async def count_by_researcher(self, researcher_id: int) -> int:
+        result = await self.db.execute(
+            select(func.count(CohortQuery.id)).where(CohortQuery.researcher_id == researcher_id)
+        )
+        return result.scalar() or 0
+
+    async def count_by_status(self, researcher_id: Optional[int], status: str) -> int:
+        query = select(func.count(CohortQuery.id)).where(CohortQuery.status == status)
+        if researcher_id is not None:
+            query = query.where(CohortQuery.researcher_id == researcher_id)
+        result = await self.db.execute(query)
+        return result.scalar() or 0

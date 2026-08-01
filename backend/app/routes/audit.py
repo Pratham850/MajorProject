@@ -1,52 +1,21 @@
 from __future__ import annotations
 from typing import List
 from fastapi import APIRouter, Depends, status
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import AuditLog, User, UserRole
-from app.routes.dependencies import RoleChecker
+from app.dependencies import get_current_user, require_role
+from app.models import User, UserRole
+from app.services.audit_service import AuditService
 
-router = APIRouter()
-
-
-class AuditLogResponse(BaseModel):
-    id: int
-    user_id: int
-    action: str
-    details: str
-    timestamp: str
-
-    model_config = ConfigDict(from_attributes=True)
+router = APIRouter(prefix="/audit-logs", tags=["Audit Logs"])
 
 
-# ----------------------------------------------------------------------
-# Admin List Audit Logs (GET /audit-logs)
-# ----------------------------------------------------------------------
-@router.get(
-    "",
-    response_model=List[dict],
-    summary="List system audit logs (Admin only)",
-    description="Retrieves security and compliance audit logs for platform activities.",
-)
+@router.get("", response_model=List[dict], status_code=status.HTTP_200_OK)
 async def list_audit_logs(
-    current_user: User = Depends(RoleChecker([UserRole.ADMIN])),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Admin endpoint to view centralized security audit trail.
-    """
-    result = await db.execute(select(AuditLog).order_by(AuditLog.timestamp.desc()).limit(100))
-    logs = result.scalars().all()
-    return [
-        {
-            "id": log.id,
-            "userId": log.user_id,
-            "action": log.action,
-            "details": log.details,
-            "timestamp": log.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-        }
-        for log in logs
-    ]
+    service = AuditService(db)
+    user_id = current_user.id if current_user.role != UserRole.ADMIN else None
+    return await service.get_audit_logs(user_id=user_id)
