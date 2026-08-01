@@ -8,17 +8,17 @@ export const patientDashboardService = {
       const response = await api.get<any>('/dashboard/patient');
       const data = response.data;
 
-      // Normalize data response to guarantee profile and summary properties
+      // Normalize data response to guarantee profile and summary properties regardless of naming convention
       const profile = {
-        name: data?.profile?.name || 'Sarah',
+        name: data?.profile?.name || data?.profile?.full_name || 'Patient',
         healthIndex: data?.profile?.healthIndex ?? 98,
       };
 
       const summary = {
-        medicalRecords: data?.summary?.medicalRecords ?? data?.totalFilesCount ?? 5,
-        appointments: data?.summary?.appointments ?? 1,
-        activeConsents: data?.summary?.activeConsents ?? data?.activeConsentCount ?? 3,
-        notifications: data?.summary?.notifications ?? 4,
+        medicalRecords: data?.summary?.medicalRecords ?? data?.summary?.medical_records_count ?? data?.totalFilesCount ?? 0,
+        appointments: data?.summary?.appointments ?? data?.summary?.appointments_count ?? 0,
+        activeConsents: data?.summary?.activeConsents ?? data?.summary?.active_consents_count ?? data?.activeConsentCount ?? 0,
+        notifications: data?.summary?.notifications ?? data?.summary?.unread_notifications_count ?? 0,
         latestCkdRisk: data?.summary?.latestCkdRisk || 'Low Risk (8.2%)',
         nextAppointment: data?.summary?.nextAppointment || 'Tomorrow, 10:30 AM',
       };
@@ -26,10 +26,13 @@ export const patientDashboardService = {
       return {
         profile,
         summary,
-        totalFilesCount: data?.totalFilesCount,
-        activeConsentCount: data?.activeConsentCount,
-        pendingRequestsCount: data?.pendingRequestsCount,
+        totalFilesCount: summary.medicalRecords,
+        activeConsentCount: summary.activeConsents,
+        pendingRequestsCount: data?.pendingRequestsCount ?? 0,
         securityStandard: data?.securityStandard || 'AES-256 / SHA-256',
+        recent_medical_records: data?.recent_medical_records || [],
+        upcoming_appointments: data?.upcoming_appointments || [],
+        notifications_list: data?.notifications || [],
       };
     } catch (error) {
       // Fallback try secondary route if primary route fails
@@ -38,20 +41,24 @@ export const patientDashboardService = {
 
       return {
         profile: {
-          name: data?.profile?.name || 'Sarah',
+          name: data?.profile?.name || data?.profile?.full_name || 'Patient',
           healthIndex: data?.profile?.healthIndex ?? 98,
         },
         summary: {
-          medicalRecords: data?.summary?.medicalRecords ?? 5,
-          appointments: data?.summary?.appointments ?? 1,
-          activeConsents: data?.summary?.activeConsents ?? 3,
-          notifications: data?.summary?.notifications ?? 4,
+          medicalRecords: data?.summary?.medicalRecords ?? data?.summary?.medical_records_count ?? 0,
+          appointments: data?.summary?.appointments ?? data?.summary?.appointments_count ?? 0,
+          activeConsents: data?.summary?.activeConsents ?? data?.summary?.active_consents_count ?? 0,
+          notifications: data?.summary?.notifications ?? data?.summary?.unread_notifications_count ?? 0,
           latestCkdRisk: data?.summary?.latestCkdRisk || 'Low Risk (8.2%)',
           nextAppointment: data?.summary?.nextAppointment || 'Tomorrow, 10:30 AM',
         },
+        recent_medical_records: data?.recent_medical_records || [],
+        upcoming_appointments: data?.upcoming_appointments || [],
+        notifications_list: data?.notifications || [],
       };
     }
   },
 };
 
 export default patientDashboardService;
+

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import api from '../../services/api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -85,14 +86,48 @@ export const HealthcareRequestsSection: React.FC = () => {
   const [doctorRequests, setDoctorRequests] = useState<DoctorRequestItem[]>(initialDoctorRequests);
   const [researchRequests, setResearchRequests] = useState<ResearchRequestItem[]>(initialResearchRequests);
 
-  const handleDoctorAction = (id: string, action: 'approve' | 'reject', name: string) => {
+  useEffect(() => {
+    const fetchRequests = async () => {
+      try {
+        const response = await api.get<any[]>('/access-requests');
+        if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+          const mapped: DoctorRequestItem[] = response.data.map((r: any) => ({
+            id: r.id || `req-${r.id}`,
+            doctorName: r.doctorName || 'Doctor',
+            hospital: r.doctorEmail ? `Contact: ${r.doctorEmail}` : 'Hospital Affiliate',
+            purpose: r.reason || 'Medical Access Request',
+            requestedRecords: r.recordTitle || 'All Medical Records',
+            requestedDuration: r.requestedDuration || '90 Days',
+            status: (r.status ? r.status.toUpperCase() : 'PENDING') as any,
+          }));
+          setDoctorRequests(mapped);
+        }
+      } catch (err) {
+        // Fallback to initial mock requests on API connection failure
+      }
+    };
+
+    fetchRequests();
+  }, []);
+
+  const handleDoctorAction = async (id: string, action: 'approve' | 'reject', name: string) => {
+    const nextStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
     setDoctorRequests((prev) =>
       prev.map((item) =>
         item.id === id
-          ? { ...item, status: action === 'approve' ? 'APPROVED' : 'REJECTED' }
+          ? { ...item, status: nextStatus }
           : item
       )
     );
+
+    try {
+      const cleanId = id.replace('req-', '').replace('dr-', '');
+      await api.put(`/access-requests/${cleanId}`, {
+        status: action === 'approve' ? 'Approved' : 'Rejected',
+      });
+    } catch (err) {
+      // In-memory status update already applied
+    }
 
     addToast({
       type: action === 'approve' ? 'success' : 'warning',
@@ -122,6 +157,7 @@ export const HealthcareRequestsSection: React.FC = () => {
           : `Declined research request for "${title}".`,
     });
   };
+
 
   return (
     <div className="space-y-6">

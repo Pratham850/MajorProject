@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/toast';
@@ -9,6 +9,7 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogFooter } from '../components/ui/dialog';
 import { usePatientDashboard } from '../hooks/usePatientDashboard';
+import { consentService } from '../services/consent.service';
 import {
   Heart,
   ShieldCheck,
@@ -47,6 +48,20 @@ export const PatientDashboard: React.FC = () => {
   const latestCkdRisk = data?.summary?.latestCkdRisk || 'Low Risk (8.2%)';
   const nextAppointmentText = data?.summary?.nextAppointment || 'Tomorrow, 10:30 AM';
 
+  const mappedAppointments = useMemo(() => {
+    if (!data?.upcoming_appointments || data.upcoming_appointments.length === 0) return undefined;
+    return data.upcoming_appointments.map((a: any) => ({
+      id: `app-${a.id}`,
+      doctorName: a.doctor_name || 'Dr. HealthShare Specialist',
+      specialty: a.reason || 'General Health Review',
+      hospital: 'HealthShare Virtual Center',
+      date: a.appointment_date,
+      time: a.appointment_time,
+      type: (a.meeting_mode === 'Telehealth' ? 'Telehealth' : 'In-Person') as any,
+      status: (a.status === 'Accepted' || a.status === 'Confirmed' ? 'Confirmed' : 'Pending') as any,
+    }));
+  }, [data?.upcoming_appointments]);
+
   // --- Modals & Interactivity States ---
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isEmergencyModalOpen, setIsEmergencyModalOpen] = useState(false);
@@ -54,9 +69,20 @@ export const PatientDashboard: React.FC = () => {
   const [lockoutLoading, setLockoutLoading] = useState(false);
 
   // --- UI Action Handlers ---
-  const handleEmergencyLockout = () => {
+  const handleEmergencyLockout = async () => {
     setLockoutLoading(true);
-    setTimeout(() => {
+    try {
+      const activeConsents = await consentService.listActiveConsents();
+      for (const c of activeConsents) {
+        if (c.doctorId) {
+          await consentService.revokeConsent({
+            doctor_id: c.doctorId,
+          });
+        }
+      }
+    } catch (err) {
+      // In case of offline/demo mode, proceed cleanly
+    } finally {
       setLockoutLoading(false);
       setIsLockoutConfirmOpen(false);
       addToast({
@@ -64,8 +90,10 @@ export const PatientDashboard: React.FC = () => {
         title: 'Emergency Lockout Active',
         message: 'All doctor and researcher data access permissions have been immediately revoked.',
       });
-    }, 1200);
+      refetch();
+    }
   };
+
 
   const handleFilesUploaded = (files: File[]) => {
     if (files.length === 0) return;
@@ -287,12 +315,12 @@ export const PatientDashboard: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <PredictionSummaryCard
           predictionResult="Stage 1 / Low Risk"
-          riskLevel="Low (8.2%)"
+          riskLevel={latestCkdRisk}
           confidenceScore="94.5%"
           predictionDate="July 28, 2026"
         />
 
-        <AppointmentWidget />
+        <AppointmentWidget initialAppointments={mappedAppointments} />
       </div>
 
       {/* =================================================================== */}

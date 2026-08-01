@@ -25,7 +25,7 @@ export const PATIENT_NAV_GROUPS: NavGroup[] = [
         icon: User,
       },
       {
-        label: 'Medical Records',
+        label: 'My Medical Records',
         path: '/records',
         icon: FileText,
         badge: 'HIPAA Secured',

@@ -19,4 +19,8 @@ export interface PatientDashboardResponse {
   activeConsentCount?: number;
   pendingRequestsCount?: number;
   securityStandard?: string;
+  recent_medical_records?: any[];
+  upcoming_appointments?: any[];
+  notifications_list?: any[];
 }
+

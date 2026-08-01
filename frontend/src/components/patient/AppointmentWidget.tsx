@@ -41,7 +41,12 @@ const defaultAppointments: Appointment[] = [
 export const AppointmentWidget: React.FC<{ initialAppointments?: Appointment[] }> = ({
   initialAppointments = defaultAppointments,
 }) => {
-  const [appointments] = useState<Appointment[]>(initialAppointments);
+  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
+
+  React.useEffect(() => {
+    setAppointments(initialAppointments);
+  }, [initialAppointments]);
+
 
   return (
     <Card className="border-slate-200/80 dark:border-slate-800">

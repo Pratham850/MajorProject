@@ -9,6 +9,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import { PatientDashboard } from './pages/PatientDashboard';
 import { MedicalRecordsPage } from './pages/MedicalRecordsPage';
+import { MedicalReportDetailsPage } from './pages/MedicalReportDetailsPage';
 import { AiPredictionPage } from './pages/AiPredictionPage';
 import { ConsentManagementPage } from './pages/ConsentManagementPage';
 import { DoctorDashboard } from './pages/DoctorDashboard';
@@ -54,6 +55,14 @@ function App() {
                 element={
                   <Layout>
                     <MedicalRecordsPage />
+                  </Layout>
+                }
+              />
+              <Route
+                path="/records/:recordId"
+                element={
+                  <Layout>
+                    <MedicalReportDetailsPage />
                   </Layout>
                 }
               />
