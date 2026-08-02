@@ -90,22 +90,24 @@ export const MedicalReportDetailsPage: React.FC = () => {
 
     try {
       const recData = await medicalRecordService.getRecord(recordId);
+      console.log('React Rendering: Received report details API response', recData);
       setRecord(recData);
       setEditTitle(recData.title);
       setEditCategory(recData.category);
       setEditDescription(recData.description || '');
 
-      // Load AI Extraction
-      try {
-        const analysis = await medicalRecordService.getAnalysis(recordId);
-        if (analysis && analysis.extractedData) {
-          setAnalysisData(analysis.extractedData);
-        } else if (recData.extractedData) {
-          setAnalysisData(recData.extractedData);
-        }
-      } catch {
-        if (recData.extractedData) {
-          setAnalysisData(recData.extractedData);
+      if (recData.extractedData) {
+        setAnalysisData(recData.extractedData);
+        console.log('React Rendering: Successfully set extractedData from record response', recData.extractedData);
+      } else {
+        try {
+          const analysis = await medicalRecordService.getAnalysis(recordId);
+          if (analysis && analysis.extractedData) {
+            setAnalysisData(analysis.extractedData);
+            console.log('React Rendering: Successfully set extractedData from analysis response', analysis.extractedData);
+          }
+        } catch (err: any) {
+          console.warn('React Rendering: Analysis endpoint call failed', err.message);
         }
       }
     } catch (err: any) {
@@ -455,27 +457,37 @@ export const MedicalReportDetailsPage: React.FC = () => {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase block">Patient Name</span>
-                <span className="font-extrabold text-slate-900 dark:text-white mt-0.5 block text-sm">{patient.name || 'Sarah Jenkins'}</span>
+                <span className="font-extrabold text-slate-900 dark:text-white mt-0.5 block text-sm">{patient.name || 'Not Specified'}</span>
               </div>
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase block">Age / Gender</span>
-                <span className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 block">{patient.age || 42} Yrs / {patient.gender || 'Female'}</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 block">
+                  {patient.age ? `${patient.age} Yrs` : 'N/A'} / {patient.gender || 'N/A'}
+                </span>
               </div>
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase block">Blood Group</span>
-                <span className="font-bold text-rose-600 mt-0.5 block">O POSITIVE (O+)</span>
+                <span className="font-bold text-rose-600 mt-0.5 block">{patient.blood_group || 'Not Specified'}</span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">Patient ID / MRN</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-slate-200 mt-0.5 block">{patient.patient_id || 'N/A'}</span>
               </div>
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase block">Report Date</span>
                 <span className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 block font-mono">{hospital.report_date || record.dateUploaded}</span>
               </div>
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">Department</span>
+                <span className="font-bold text-indigo-600 mt-0.5 block">{hospital.department || 'General Diagnostics'}</span>
+              </div>
               <div className="col-span-2">
                 <span className="text-[10px] font-bold text-slate-400 uppercase block">Medical Facility / Lab</span>
-                <span className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 block">{hospital.hospital || hospital.laboratory_name || 'HealthShare Virtual Diagnostics'}</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 block">{hospital.hospital || hospital.laboratory_name || 'Not Specified'}</span>
               </div>
               <div className="col-span-2">
                 <span className="text-[10px] font-bold text-slate-400 uppercase block">Ordering Physician</span>
-                <span className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 block">{hospital.doctor || 'Dr. Robert Vance, MD'}</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 block">{hospital.doctor || 'Not Specified'}</span>
               </div>
             </div>
           </Card>
@@ -489,7 +501,7 @@ export const MedicalReportDetailsPage: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-white">Section 4: Gemini AI Clinical Impression</h3>
-                  <p className="text-2xs text-indigo-200">Multimodal Neural Language Model Summary</p>
+                  <p className="text-2xs text-indigo-200">Multimodal Neural Extraction Summary</p>
                 </div>
               </div>
               <Badge variant="primary" size="sm" className="bg-indigo-500/30 text-indigo-200 border-indigo-400/40">
@@ -497,7 +509,7 @@ export const MedicalReportDetailsPage: React.FC = () => {
               </Badge>
             </div>
             <p className="text-xs text-indigo-100 leading-relaxed">
-              {analysisData?.diagnosis || 'Laboratory findings indicate mild renal biomarker elevation with Serum Creatinine at 2.1 mg/dL. Fasting blood glucose levels remain well controlled within physiological parameters.'}
+              {analysisData?.diagnosis || 'No specific clinical impression recorded in document payload.'}
             </p>
           </Card>
 
@@ -509,26 +521,32 @@ export const MedicalReportDetailsPage: React.FC = () => {
                   <Sparkles className="w-4 h-4 text-indigo-600" /> Section 3: Extracted Biomarkers & Test Results
                 </CardTitle>
                 <CardDescription className="text-2xs text-slate-500 mt-0.5">
-                  Extracted {testResults.length || 3} parameters from original payload
+                  Extracted {testResults.length} test parameter(s) from document
                 </CardDescription>
               </div>
             </CardHeader>
             <CardContent className="p-0 overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-900/80 text-slate-500 uppercase text-[10px] font-bold border-b border-slate-100 dark:border-slate-800">
-                  <tr>
-                    <th className="px-5 py-3">Biomarker / Test Name</th>
-                    <th className="px-5 py-3">Result Value</th>
-                    <th className="px-5 py-3">Unit</th>
-                    <th className="px-5 py-3">Reference Range</th>
-                    <th className="px-5 py-3">Clinical Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {testResults.length > 0 ? (
-                    testResults.map((t: any, idx: number) => (
+              {testResults.length > 0 ? (
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 dark:bg-slate-900/80 text-slate-500 uppercase text-[10px] font-bold border-b border-slate-100 dark:border-slate-800">
+                    <tr>
+                      <th className="px-5 py-3">Biomarker / Test Name</th>
+                      <th className="px-5 py-3">Category</th>
+                      <th className="px-5 py-3">Result Value</th>
+                      <th className="px-5 py-3">Unit</th>
+                      <th className="px-5 py-3">Reference Range</th>
+                      <th className="px-5 py-3">Clinical Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {testResults.map((t: any, idx: number) => (
                       <tr key={idx} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
                         <td className="px-5 py-3.5 font-bold text-slate-900 dark:text-white">{t.test_name}</td>
+                        <td className="px-5 py-3.5">
+                          <span className="text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-2 py-0.5 rounded-md">
+                            {t.category || 'Other'}
+                          </span>
+                        </td>
                         <td className="px-5 py-3.5 font-mono font-bold text-slate-800 dark:text-slate-200">{t.value}</td>
                         <td className="px-5 py-3.5 text-slate-500">{t.unit || '-'}</td>
                         <td className="px-5 py-3.5 text-slate-400 font-mono">{t.reference_range || 'Normal'}</td>
@@ -541,34 +559,18 @@ export const MedicalReportDetailsPage: React.FC = () => {
                           </Badge>
                         </td>
                       </tr>
-                    ))
-                  ) : (
-                    <>
-                      <tr className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
-                        <td className="px-5 py-3.5 font-bold text-slate-900 dark:text-white">Serum Creatinine</td>
-                        <td className="px-5 py-3.5 font-mono font-bold text-rose-600">2.1</td>
-                        <td className="px-5 py-3.5 text-slate-500">mg/dL</td>
-                        <td className="px-5 py-3.5 text-slate-400 font-mono">0.7 - 1.3 mg/dL</td>
-                        <td className="px-5 py-3.5"><Badge variant="danger" size="sm">High</Badge></td>
-                      </tr>
-                      <tr className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
-                        <td className="px-5 py-3.5 font-bold text-slate-900 dark:text-white">Blood Urea Nitrogen (BUN)</td>
-                        <td className="px-5 py-3.5 font-mono font-bold text-slate-800 dark:text-slate-200">18.4</td>
-                        <td className="px-5 py-3.5 text-slate-500">mg/dL</td>
-                        <td className="px-5 py-3.5 text-slate-400 font-mono">7 - 20 mg/dL</td>
-                        <td className="px-5 py-3.5"><Badge variant="success" size="sm">Normal</Badge></td>
-                      </tr>
-                      <tr className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
-                        <td className="px-5 py-3.5 font-bold text-slate-900 dark:text-white">eGFR (Estimated GFR)</td>
-                        <td className="px-5 py-3.5 font-mono font-bold text-amber-600">58</td>
-                        <td className="px-5 py-3.5 text-slate-500">mL/min/1.73m²</td>
-                        <td className="px-5 py-3.5 text-slate-400 font-mono">&gt; 90</td>
-                        <td className="px-5 py-3.5"><Badge variant="warning" size="sm">Low</Badge></td>
-                      </tr>
-                    </>
-                  )}
-                </tbody>
-              </table>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="p-8 text-center text-xs text-slate-500 dark:text-slate-400 space-y-2">
+                  <AlertCircle className="w-6 h-6 text-slate-400 mx-auto" />
+                  <p className="font-bold text-slate-700 dark:text-slate-300">No Structured Biomarkers Extracted</p>
+                  <p className="text-2xs max-w-sm mx-auto">
+                    No individual lab test parameters were extracted from this report. Click "Reprocess AI" to run Gemini multimodal parsing again.
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -578,7 +580,7 @@ export const MedicalReportDetailsPage: React.FC = () => {
               <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Section 5: Doctor Recommendations & Clinical Guidance
             </h3>
             <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed bg-emerald-50/50 dark:bg-emerald-950/30 p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/40">
-              {analysisData?.recommendations || 'Nephrology follow-up evaluation is recommended within 14 days. Maintain adequate fluid intake and repeat Serum Creatinine & eGFR panel prior to next clinical consultation.'}
+              {analysisData?.recommendations || 'No specific clinical recommendations recorded in report payload.'}
             </p>
           </Card>
 

@@ -1,8 +1,11 @@
 import os
+import sys
+import traceback
 import logging
 from typing import Dict, Any, Optional, Union
 from mimetypes import guess_type
 
+from fastapi import HTTPException, status
 from app.schemas.medical_report import (
     MedicalReportExtraction,
     PatientInfo,
@@ -63,17 +66,21 @@ class MedicalReportParser:
             logger.warning("Extraction Failed: Received empty or invalid dictionary structure from parser")
             return MedicalReportExtraction()
 
+        timing_metadata = raw_data.pop("_timing", None)
         patient_raw = raw_data.get("patient") or {}
         patient = PatientInfo(
             name=patient_raw.get("name") if isinstance(patient_raw, dict) else None,
             age=int(patient_raw["age"]) if isinstance(patient_raw, dict) and str(patient_raw.get("age", "")).isdigit() else None,
             gender=patient_raw.get("gender") if isinstance(patient_raw, dict) else None,
+            patient_id=patient_raw.get("patient_id") if isinstance(patient_raw, dict) else None,
+            blood_group=patient_raw.get("blood_group") if isinstance(patient_raw, dict) else None,
         )
 
         hospital_raw = raw_data.get("hospital") or {}
         hospital = HospitalInfo(
             hospital=hospital_raw.get("hospital") if isinstance(hospital_raw, dict) else None,
             doctor=hospital_raw.get("doctor") if isinstance(hospital_raw, dict) else None,
+            department=hospital_raw.get("department") if isinstance(hospital_raw, dict) else None,
             report_date=str(hospital_raw.get("report_date")) if isinstance(hospital_raw, dict) and hospital_raw.get("report_date") else None,
             laboratory_name=hospital_raw.get("laboratory_name") if isinstance(hospital_raw, dict) else None,
         )
@@ -91,7 +98,8 @@ class MedicalReportParser:
                 if not test_name:
                     continue
 
-                norm_key = test_name.lower()
+                category = str(item.get("category") or "Other").strip()
+                norm_key = f"{category.lower()}:{test_name.lower()}"
                 if norm_key in seen_tests:
                     logger.debug("Duplicate test entry '%s' ignored during validation", test_name)
                     continue
@@ -116,6 +124,7 @@ class MedicalReportParser:
                         unit=unit_str,
                         reference_range=ref_str,
                         status=status_clean,
+                        category=category,
                     )
                 )
 
@@ -128,6 +137,7 @@ class MedicalReportParser:
             test_results=cleaned_tests,
             diagnosis=diagnosis,
             recommendations=recommendations,
+            timing_metadata=timing_metadata,
         )
 
     async def parse_report(
@@ -145,15 +155,24 @@ class MedicalReportParser:
         mime_type = self.detect_mime_type(filename, content_type)
 
         try:
-            logger.info("Gemini Processing Started: Sending '%s' (%s) to Gemini Vision API", filename, mime_type)
-            raw_extraction = await self.gemini_service.extract_medical_data(file_bytes, mime_type)
+            logger.info("========== STEP 2C ==========\nExtract bytes: Ready to send %d bytes (%s) for file '%s' to Gemini Service", len(file_bytes), mime_type, filename)
+            raw_extraction = await self.gemini_service.extract_medical_data(file_bytes, mime_type, filename)
             
+            logger.info("========== STEP 8 ==========\nValidate JSON: Validating extracted data against Pydantic schema and sanitizing biomarkers...")
             extraction_result = self.validate_and_clean_extraction(raw_extraction)
-            logger.info("Extraction Success: Medical report '%s' parsed into structured model with %d tests",
+            logger.info("Validation result: Medical report '%s' validated into Pydantic model with %d test results",
                         filename, len(extraction_result.test_results))
             return extraction_result
 
         except Exception as exc:
-            logger.error("Extraction Failed: Error processing report '%s': %s", filename, str(exc))
-            # Return empty extraction model rather than failing hard or crashing backend
-            return MedicalReportExtraction()
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            tb_entry = traceback.extract_tb(exc_tb)[-1]
+            logger.error(
+                f"[EXECUTION STOPPED IN PARSER]\n"
+                f"Exact File: {tb_entry.filename}\n"
+                f"Function: {tb_entry.name}\n"
+                f"Line Number: {tb_entry.lineno}\n"
+                f"Exception: {exc_type.__name__}: {exc_value}"
+            )
+            # Do not swallow exceptions
+            raise exc

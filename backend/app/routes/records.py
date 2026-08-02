@@ -134,6 +134,6 @@ async def get_record_analysis(
     current_user: User = Depends(get_current_user),
     record_service: RecordService = Depends(get_record_service),
 ):
-    return await record_service.parse_record_by_id(id, current_user)
+    return await record_service.get_record_analysis(id, current_user)
 
 

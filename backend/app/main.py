@@ -31,10 +31,17 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS
+    # CORS configuration allowing explicit frontend origins with credentials
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:4173",
+            "http://127.0.0.1:4173",
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

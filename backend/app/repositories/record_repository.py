@@ -34,6 +34,7 @@ class RecordRepository:
         category: str,
         file_path: str,
         file_size: str,
+        extracted_data: Optional[str] = None,
     ) -> MedicalRecord:
         """Create and persist a new MedicalRecord entry."""
         new_record = MedicalRecord(
@@ -42,10 +43,17 @@ class RecordRepository:
             category=category,
             file_path=file_path,
             file_size=file_size,
+            extracted_data=extracted_data,
         )
         self.db.add(new_record)
         await self.db.flush()
         return new_record
+
+    async def update_extracted_data(self, record: MedicalRecord, extracted_data: str) -> MedicalRecord:
+        """Update record extracted JSON data."""
+        record.extracted_data = extracted_data
+        await self.db.flush()
+        return record
 
     async def list_by_patient(self, patient_id: int, limit: Optional[int] = None) -> List[MedicalRecord]:
         """Retrieve all medical records for a specific patient."""

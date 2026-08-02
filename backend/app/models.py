@@ -248,6 +248,7 @@ class MedicalRecord(Base, TimestampMixin):
     category: Mapped[str] = mapped_column(String(100), nullable=False)
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
     file_size: Mapped[str] = mapped_column(String(50), nullable=False)
+    extracted_data: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
     patient: Mapped[User] = relationship("User", back_populates="records", foreign_keys=[patient_id])
